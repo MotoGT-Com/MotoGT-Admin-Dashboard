@@ -4,8 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Search, Filter, ChevronDown, X } from 'lucide-react'
-import { Suspense, useState } from 'react'
+import { Suspense, useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import OrdersLoading from './loading'
+import { orderService, Order } from '@/lib/services/order.service'
+import { userService, User } from '@/lib/services/user.service'
+import { toast } from 'sonner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,60 +35,19 @@ const orderStatusDescriptions = {
 }
 
 function OrdersContent() {
-  const [orders, setOrders] = useState([
-    { 
-      id: 'JO-2025-000039', 
-      customer: 'jamal amir', 
-      email: 'jamalamir629@gmail.com', 
-      items: 4,
-      total: '$380.00', 
-      payment: 'Unpaid',
-      status: 'Delivered', 
-      date: '2025-11-01 08:06' 
-    },
-    { 
-      id: 'JO-2025-000038', 
-      customer: 'Ahmad Alkurdi', 
-      email: 'alkurdiahad@outlook.com', 
-      items: 3,
-      total: '$520.50', 
-      payment: 'Paid',
-      status: 'Shipped', 
-      date: '2025-10-31 14:22' 
-    },
-    { 
-      id: 'JO-2025-000037', 
-      customer: 'Amr Halawani', 
-      email: 'amrhalawanii@gmail.com', 
-      items: 2,
-      total: '$275.00', 
-      payment: 'Unpaid',
-      status: 'Processing', 
-      date: '2025-10-30 10:15' 
-    },
-    { 
-      id: 'JO-2025-000036', 
-      customer: 'Hamza Alarabi', 
-      email: 'alarabi.h93@gmail.com', 
-      items: 5,
-      total: '$890.00', 
-      payment: 'Paid',
-      status: 'Delivered', 
-      date: '2025-10-29 16:45' 
-    },
-    { 
-      id: 'JO-2025-000035', 
-      customer: 'Ahmad Alshawakri', 
-      email: 'ashawakri@gmail.com', 
-      items: 3,
-      total: '$445.75', 
-      payment: 'Paid',
-      status: 'Confirmed', 
-      date: '2025-10-28 09:30' 
-    },
-  ])
+  const router = useRouter()
+  const [orders, setOrders] = useState<Order[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const limit = 20
+  
+  // TODO: Get storeId from user context or config
+  const storeId = '19bf2cb6-1b50-4b95-80d6-9da6560588fc'
+  
   const [visibleColumns, setVisibleColumns] = useState({
     orderNumber: true,
     customerEmail: true,
@@ -95,6 +58,54 @@ function OrdersContent() {
     createdAt: true
   })
 
+  // Fetch orders from API
+  useEffect(() => {
+    const fetchOrders = async () => {
+      try {
+        setIsLoading(true)
+        const params: any = {
+          storeId,
+          page,
+          limit,
+          sortBy: 'createdAt',
+          sortOrder: 'desc'
+        }
+        
+        if (selectedStatuses.length === 1) {
+          params.status = selectedStatuses[0].toLowerCase()
+        }
+
+        const response = await orderService.getOrders(params)
+        
+        // Fetch user details for each order
+        const ordersWithUsers = await Promise.all(
+          response.items.map(async (order) => {
+            if (order.userId) {
+              try {
+                const user = await userService.getUserById(order.userId)
+                return { ...order, user }
+              } catch (error) {
+                console.error(`Failed to fetch user ${order.userId}:`, error)
+                return order
+              }
+            }
+            return order
+          })
+        )
+        
+        setOrders(ordersWithUsers)
+        setTotal(response.total)
+        setTotalPages(Math.ceil(response.total / limit))
+      } catch (error: any) {
+        toast.error(error.message || 'Failed to load orders')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchOrders()
+  }, [page, selectedStatuses, storeId])
+
   const toggleColumn = (column: keyof typeof visibleColumns) => {
     setVisibleColumns(prev => ({
       ...prev,
@@ -102,15 +113,24 @@ function OrdersContent() {
     }))
   }
 
-  const updateOrderStatus = (orderId: string, newStatus: string) => {
-    setOrders(prevOrders =>
-      prevOrders.map(order =>
-        order.id === orderId ? { ...order, status: newStatus } : order
+  const updateOrderStatus = async (id: string, newStatus: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded') => {
+    try {
+      await orderService.updateOrderStatus(id, newStatus)
+      
+      // Update local state
+      setOrders(prevOrders =>
+        prevOrders.map(order =>
+          order.id === id ? { ...order, status: newStatus } : order
+        )
       )
-    )
+      
+      toast.success(`Order status updated to ${newStatus}`)
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update order status')
+    }
   }
 
-  const statusOptions = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Confirmed']
+  const statusOptions = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded']
 
   const toggleStatus = (status: string) => {
     setSelectedStatuses(prev => 
@@ -125,30 +145,34 @@ function OrdersContent() {
   }
 
   const getStatusColor = (status: string) => {
-    switch(status) {
-      case 'Delivered':
+    switch(status.toLowerCase()) {
+      case 'delivered':
         return 'bg-primary/20 text-primary'
-      case 'Shipped':
+      case 'shipped':
         return 'bg-blue-900/30 text-blue-300'
-      case 'Processing':
+      case 'processing':
         return 'bg-yellow-900/30 text-yellow-300'
-      case 'Confirmed':
+      case 'confirmed':
         return 'bg-green-900/30 text-green-300'
+      case 'cancelled':
+        return 'bg-red-900/30 text-red-300'
+      case 'refunded':
+        return 'bg-orange-900/30 text-orange-300'
       default:
         return 'bg-gray-900/30 text-gray-300'
     }
   }
 
   const getPaymentColor = (payment: string) => {
-    return payment === 'Paid' 
+    return payment?.toLowerCase() === 'paid' 
       ? 'bg-green-900/30 text-green-300' 
       : 'bg-red-900/30 text-red-300'
   }
 
   const filteredOrders = orders.filter(order => 
     (searchTerm === '' || 
-    order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.email.toLowerCase().includes(searchTerm.toLowerCase())) &&
+    order.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.user?.email?.toLowerCase().includes(searchTerm.toLowerCase())) &&
     (selectedStatuses.length === 0 || selectedStatuses.includes(order.status))
   )
 
@@ -251,13 +275,6 @@ function OrdersContent() {
               </label>
               <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
                 <Checkbox 
-                  checked={visibleColumns.items}
-                  onCheckedChange={() => toggleColumn('items')}
-                />
-                <span className="text-sm">Items</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox 
                   checked={visibleColumns.total}
                   onCheckedChange={() => toggleColumn('total')}
                 />
@@ -290,7 +307,11 @@ function OrdersContent() {
       </div>
 
       <div className="border border-border rounded-lg overflow-hidden">
-        {filteredOrders.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : filteredOrders.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <p className="text-lg font-semibold text-foreground mb-2">No orders found</p>
@@ -305,7 +326,6 @@ function OrdersContent() {
               <tr className="border-b border-border bg-muted/50">
                 {visibleColumns.orderNumber && <th className="text-left py-4 px-6 font-semibold">Order #</th>}
                 {visibleColumns.customerEmail && <th className="text-left py-4 px-6 font-semibold">Customer</th>}
-                {visibleColumns.items && <th className="text-left py-4 px-6 font-semibold">Items</th>}
                 {visibleColumns.total && <th className="text-left py-4 px-6 font-semibold">Total</th>}
                 {visibleColumns.paymentStatus && <th className="text-left py-4 px-6 font-semibold">Payment</th>}
                 {visibleColumns.status && <th className="text-left py-4 px-6 font-semibold">Status</th>}
@@ -316,30 +336,29 @@ function OrdersContent() {
             <tbody>
               {filteredOrders.map((order) => (
                 <tr key={order.id} className="border-b border-border hover:bg-primary/5 transition">
-                  {visibleColumns.orderNumber && <td className="py-4 px-6 font-medium">{order.id}</td>}
+                  {visibleColumns.orderNumber && <td className="py-4 px-6 font-medium">{order.orderNumber}</td>}
                   {visibleColumns.customerEmail && (
                     <td className="py-4 px-6">
-                      <div className="font-medium">{order.customer}</div>
-                      <div className="text-xs text-muted-foreground">{order.email}</div>
+                      <div className="font-medium">{order.user?.firstName} {order.user?.lastName}</div>
+                      <div className="text-xs text-muted-foreground">{order.user?.email}</div>
                     </td>
                   )}
-                  {visibleColumns.items && <td className="py-4 px-6 text-muted-foreground">{order.items} items</td>}
-                  {visibleColumns.total && <td className="py-4 px-6 font-semibold">{order.total}</td>}
+                  {visibleColumns.total && <td className="py-4 px-6 font-semibold">${Number(order?.totalAmount || 0).toFixed(2)}</td>}
                   {visibleColumns.paymentStatus && (
                     <td className="py-4 px-6">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPaymentColor(order.payment)}`}>
-                        {order.payment}
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPaymentColor(order.paymentStatus || 'unpaid')}`}>
+                        {order.paymentStatus || 'Unpaid'}
                       </span>
                     </td>
                   )}
                   {visibleColumns.status && (
                     <td className="py-4 px-6">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                        {order.status}
+                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
                       </span>
                     </td>
                   )}
-                  {visibleColumns.createdAt && <td className="py-4 px-6 text-muted-foreground">{order.date}</td>}
+                  {visibleColumns.createdAt && <td className="py-4 px-6 text-muted-foreground">{new Date(order.createdAt).toLocaleString()}</td>}
                   <td className="py-4 px-6">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -350,23 +369,24 @@ function OrdersContent() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
                         <DropdownMenuItem onClick={() => {
-                          window.location.href = `/dashboard/orders/${order.id}`
+                          router.push(`/dashboard/orders/${order.id}`)
                         }}>
                           View Details
                         </DropdownMenuItem>
                         <TooltipProvider>
-                          {['Pending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded'].map(status => (
+                          {(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'] as const).map(status => (
                             <Tooltip key={status}>
                               <TooltipTrigger asChild>
                                 <DropdownMenuItem 
                                   onClick={() => updateOrderStatus(order.id, status)}
-                                  className={status === 'Refunded' ? 'text-red-400' : status === 'Cancelled' ? 'text-orange-400' : ''}
+                                  className={status === 'refunded' ? 'text-red-400' : status === 'cancelled' ? 'text-orange-400' : ''}
+                                  disabled={order.status === status}
                                 >
-                                  Mark {status}
+                                  Mark {status.charAt(0).toUpperCase() + status.slice(1)}
                                 </DropdownMenuItem>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="max-w-xs">
-                                {orderStatusDescriptions[status as keyof typeof orderStatusDescriptions]}
+                                {orderStatusDescriptions[status.charAt(0).toUpperCase() + status.slice(1) as keyof typeof orderStatusDescriptions] || 'Update order status'}
                               </TooltipContent>
                             </Tooltip>
                           ))}
