@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, Search, Settings, User, Moon, Sun, PanelLeft, PanelRight, ShoppingCart, Package, AlertCircle } from 'lucide-react'
+import { Bell, Search, Settings, User, Moon, Sun, PanelLeft, PanelRight, ShoppingCart, Package, AlertCircle, LogOut } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useState, useEffect } from "react"
 import { useSidebar } from "./sidebar-context"
+import { useAuth } from "@/lib/context/auth-context"
 import Link from "next/link"
 
 type Notification = {
@@ -28,6 +29,7 @@ export function Header() {
   const [theme, setThemeState] = useState<'light' | 'dark'>('light')
   const [mounted, setMounted] = useState(false)
   const { isCollapsed, toggleCollapse } = useSidebar()
+  const { user, logout } = useAuth()
 
   const [notifications, setNotifications] = useState<Notification[]>([
     {
@@ -182,8 +184,18 @@ export function Header() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem className="cursor-pointer">
-                Logout
+              <DropdownMenuLabel>
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user?.email || 'Admin'}</p>
+                  <p className="text-xs leading-none text-muted-foreground capitalize">
+                    {user?.role || 'Administrator'}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer" onClick={logout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Logout</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
