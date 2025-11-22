@@ -1,70 +1,99 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { usePathname } from 'next/navigation'
-import { useState } from "react"
-import { useSidebar } from "./sidebar-context"
-import { LayoutDashboard, ShoppingCart, Package, Layers, Tag, Users, Car, FileText, Zap, TicketIcon, Settings, ChevronDown, Menu, X, ChevronsLeft, ChevronsRight, UserCog, Shield, ScrollText, Warehouse } from 'lucide-react'
-import { Button } from "@/components/ui/button"
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { useSidebar } from "./sidebar-context";
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  Package,
+  Layers,
+  Tag,
+  Users,
+  Car,
+  FileText,
+  Zap,
+  TicketIcon,
+  Settings,
+  ChevronDown,
+  Menu,
+  X,
+  ChevronsLeft,
+  ChevronsRight,
+  UserCog,
+  Shield,
+  ScrollText,
+  Warehouse,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface NavGroup {
-  label: string
-  items: NavItem[]
+  label: string;
+  items: NavItem[];
 }
 
 interface NavItem {
-  icon: React.ReactNode
-  label: string
-  href: string
+  icon: React.ReactNode;
+  label: string;
+  href: string;
 }
 
 const navigationGroups: NavGroup[] = [
   {
     label: "General",
     items: [
-      { icon: <LayoutDashboard size={20} />, label: "Dashboard", href: "/dashboard" },
-      { icon: <ShoppingCart size={20} />, label: "Orders", href: "/dashboard/orders" },
+      {
+        icon: <LayoutDashboard size={20} />,
+        label: "Dashboard",
+        href: "/dashboard",
+      },
+      {
+        icon: <ShoppingCart size={20} />,
+        label: "Orders",
+        href: "/dashboard/orders",
+      },
       { icon: <Users size={20} />, label: "Users", href: "/dashboard/users" },
     ],
   },
   {
     label: "Store Management",
     items: [
-      { icon: <Layers size={20} />, label: "Categories", href: "/dashboard/categories" },
-      { icon: <Tag size={20} />, label: "Products", href: "/dashboard/products" },
-      { icon: <FileText size={20} />, label: "Collections", href: "/dashboard/collections" },
+      // { icon: <Layers size={20} />, label: "Categories", href: "/dashboard/categories" },
+      // { icon: <Tag size={20} />, label: "Products", href: "/dashboard/products" },
+      // { icon: <FileText size={20} />, label: "Collections", href: "/dashboard/collections" },
       { icon: <Car size={20} />, label: "Cars", href: "/dashboard/cars" },
     ],
   },
-  {
-    label: "Content Management",
-    items: [
-      { icon: <FileText size={20} />, label: "CMS", href: "/dashboard/cms" },
-      { icon: <Shield size={20} />, label: "Legal CMS", href: "/dashboard/legal-cms" },
-    ],
-  },
-  {
-    label: "Marketing",
-    items: [
-      { icon: <TicketIcon size={20} />, label: "Coupon Codes", href: "/dashboard/coupons" },
-      { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
-    ],
-  },
-  {
-    label: "Configuration",
-    items: [
-      { icon: <UserCog size={20} />, label: "Admin Management", href: "/dashboard/admins" },
-      // { icon: <Settings size={20} />, label: "Settings", href: "/dashboard/settings" },
-    ],
-  },
-]
+  // {
+  //   label: "Content Management",
+  //   items: [
+  //     { icon: <FileText size={20} />, label: "CMS", href: "/dashboard/cms" },
+  //     { icon: <Shield size={20} />, label: "Legal CMS", href: "/dashboard/legal-cms" },
+  //   ],
+  // },
+  // {
+  //   label: "Marketing",
+  //   items: [
+  //     { icon: <TicketIcon size={20} />, label: "Coupon Codes", href: "/dashboard/coupons" },
+  //     { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
+  //   ],
+  // },
+  // {
+  //   label: "Configuration",
+  //   items: [
+  //     { icon: <UserCog size={20} />, label: "Admin Management", href: "/dashboard/admins" },
+  //     // { icon: <Settings size={20} />, label: "Settings", href: "/dashboard/settings" },
+  //   ],
+  // },
+];
 
 export function Sidebar() {
-  const [isOpen, setIsOpen] = useState(false)
-  const { isCollapsed } = useSidebar()
-  const pathname = usePathname()
+  const [isOpen, setIsOpen] = useState(false);
+  const { isCollapsed } = useSidebar();
+  const pathname = usePathname();
 
-  const isActive = (href: string) => pathname === href
+  const isActive = (href: string) => pathname === href;
 
   return (
     <>
@@ -80,7 +109,9 @@ export function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 ${isCollapsed ? 'w-16' : 'w-64'} bg-sidebar border-r border-sidebar-border transition-all duration-300 ease-in-out transform z-30 ${
+        className={`fixed inset-y-0 left-0 ${
+          isCollapsed ? "w-16" : "w-64"
+        } bg-sidebar border-r border-sidebar-border transition-all duration-300 ease-in-out transform z-30 ${
           isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
@@ -91,7 +122,9 @@ export function Sidebar() {
             </div>
             {!isCollapsed && (
               <div className="flex-1 min-w-0">
-                <h1 className="font-bold text-sidebar-foreground text-sm">MotoGT Admin</h1>
+                <h1 className="font-bold text-sidebar-foreground text-sm">
+                  MotoGT Admin
+                </h1>
                 <p className="text-xs text-muted-foreground">Dashboard</p>
               </div>
             )}
@@ -111,7 +144,11 @@ export function Sidebar() {
                     <Link key={item.href} href={item.href}>
                       <Button
                         variant={isActive(item.href) ? "default" : "ghost"}
-                        className={`w-full ${isCollapsed ? 'justify-center px-2' : 'justify-start gap-3'} text-sm ${
+                        className={`w-full ${
+                          isCollapsed
+                            ? "justify-center px-2"
+                            : "justify-start gap-3"
+                        } text-sm ${
                           isActive(item.href)
                             ? "bg-primary text-white"
                             : "text-sidebar-foreground hover:bg-sidebar-accent"
@@ -138,5 +175,5 @@ export function Sidebar() {
         />
       )}
     </>
-  )
+  );
 }

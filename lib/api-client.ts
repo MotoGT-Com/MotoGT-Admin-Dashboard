@@ -139,11 +139,25 @@ class ApiClient {
   }
 
   public post<T = any>(url: string, data?: any) {
-    return this.client.post<ApiResponse<T>>(url, data);
+    // If data is FormData, we need to let the browser set the Content-Type with boundary
+    const config = data instanceof FormData ? {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      }
+    } : undefined;
+    
+    return this.client.post<ApiResponse<T>>(url, data, config);
   }
 
   public put<T = any>(url: string, data?: any) {
-    return this.client.put<ApiResponse<T>>(url, data);
+    // If data is FormData, we need to let the browser set the Content-Type with boundary
+    const config = data instanceof FormData ? {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      }
+    } : undefined;
+    
+    return this.client.put<ApiResponse<T>>(url, data, config);
   }
 
   public patch<T = any>(url: string, data?: any) {
