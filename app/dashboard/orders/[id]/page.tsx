@@ -1,77 +1,82 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, Download } from 'lucide-react'
-import Link from 'next/link'
-import { downloadInvoice } from '@/lib/invoice-generator'
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { ArrowLeft, Download } from "lucide-react";
+import Link from "next/link";
+import { downloadInvoice } from "@/lib/invoice-generator";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Badge } from "@/components/ui/badge"
-import { orderService, Order } from '@/lib/services/order.service'
-import { userService, User } from '@/lib/services/user.service'
-import { toast } from 'sonner'
-import { useParams, useRouter } from 'next/navigation'
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { orderService, Order } from "@/lib/services/order.service";
+import { userService, User } from "@/lib/services/user.service";
+import { toast } from "sonner";
+import { useParams, useRouter } from "next/navigation";
 
 export default function OrderDetailsPage() {
-  const params = useParams()
-  const router = useRouter()
-  const orderId = params.id as string
-  
-  const [order, setOrder] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [user, setUser] = useState<User | null>(null)
+  const params = useParams();
+  const router = useRouter();
+  const orderId = params.id as string;
+
+  const [order, setOrder] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     const fetchOrderDetails = async () => {
       try {
-        setIsLoading(true)
-        const orderData = await orderService.getOrderById(orderId)
-        console.log('Order Data:', orderData)
-        setOrder(orderData)
-        
+        setIsLoading(true);
+        const orderData = await orderService.getOrderById(orderId);
+        setOrder(orderData);
+
         // Fetch user details if userId exists
         if (orderData.order.customer) {
-          setUser(orderData.order.customer)
+          setUser(orderData.order.customer);
         }
       } catch (error: any) {
-        toast.error(error.message || 'Failed to load order details')
+        toast.error(error.message || "Failed to load order details");
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
-    }
+    };
 
     if (orderId) {
-      fetchOrderDetails()
+      fetchOrderDetails();
     }
-  }, [orderId])
+  }, [orderId]);
 
   const handleStatusUpdate = async (newStatus: string) => {
     try {
-      await orderService.updateOrderStatus(orderId, newStatus as any)
-      setOrder({ order: { ...order.order, status: newStatus } })
-      toast.success(`Order status updated to ${newStatus}`)
+      await orderService.updateOrderStatus(orderId, newStatus as any);
+      setOrder({ order: { ...order.order, status: newStatus } });
+      toast.success(`Order status updated to ${newStatus}`);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to update order status')
+      toast.error(error.message || "Failed to update order status");
     }
-  }
+  };
 
   const handlePaymentUpdate = (newPayment: string) => {
-    setOrder({ order: { ...order.order, paymentStatus: newPayment } })
-    toast.success(`Payment status updated to ${newPayment}`)
-  }
+    setOrder({ order: { ...order.order, paymentStatus: newPayment } });
+    toast.success(`Payment status updated to ${newPayment}`);
+  };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
-    )
+    );
   }
 
   if (!order) {
@@ -85,30 +90,40 @@ export default function OrderDetailsPage() {
         </Button>
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <p className="text-lg font-semibold text-foreground mb-2">Order not found</p>
-            <p className="text-muted-foreground">The order you're looking for doesn't exist.</p>
+            <p className="text-lg font-semibold text-foreground mb-2">
+              Order not found
+            </p>
+            <p className="text-muted-foreground">
+              The order you're looking for doesn't exist.
+            </p>
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   const getPaymentBadgeVariant = (payment: string) => {
     switch (payment?.toLowerCase()) {
-      case 'paid':
-        return 'default'
-      case 'unpaid':
-        return 'destructive'
-      case 'partial':
-        return 'secondary'
-      case 'refunded':
-        return 'outline'
+      case "paid":
+        return "default";
+      case "unpaid":
+        return "destructive";
+      case "partial":
+        return "secondary";
+      case "refunded":
+        return "outline";
       default:
-        return 'secondary'
+        return "secondary";
     }
-  }
+  };
 
-  const calculatedSubtotal = order?.items?.reduce((sum: number, item: any) => sum + Number(item.totalPrice || 0), 0) || Number(order?.order?.totalAmount || 0) || 0
+  const calculatedSubtotal =
+    order?.items?.reduce(
+      (sum: number, item: any) => sum + Number(item.totalPrice || 0),
+      0
+    ) ||
+    Number(order?.order?.totalAmount || 0) ||
+    0;
 
   return (
     <div className="space-y-6">
@@ -121,8 +136,12 @@ export default function OrderDetailsPage() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">Order {order.order.orderNumber || order.order.id}</h1>
-            <p className="text-muted-foreground mt-1 text-sm">{new Date(order.order.createdAt).toLocaleString()}</p>
+            <h1 className="text-3xl font-bold">
+              Order {order.order.orderNumber || order.order.id}
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              {new Date(order.order.createdAt).toLocaleString()}
+            </p>
           </div>
         </div>
         <Button onClick={() => downloadInvoice(order)} className="gap-2">
@@ -141,12 +160,24 @@ export default function OrderDetailsPage() {
                 {/* Left: Order Details */}
                 <div className="space-y-6">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Order Number</p>
-                    <p className="text-lg font-semibold">{order.order.orderNumber || order.order.id}</p>
-                    <p className="text-sm text-muted-foreground mt-3">Order Date</p>
-                    <p className="text-sm">{new Date(order.order.createdAt).toLocaleString()}</p>
-                    <p className="text-sm text-muted-foreground mt-3">Payment Method</p>
-                    <p className="text-sm">{order.paymentMethod || 'Cash on Delivery'}</p>
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Order Number
+                    </p>
+                    <p className="text-lg font-semibold">
+                      {order.order.orderNumber || order.order.id}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-3">
+                      Order Date
+                    </p>
+                    <p className="text-sm">
+                      {new Date(order.order.createdAt).toLocaleString()}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-3">
+                      Payment Method
+                    </p>
+                    <p className="text-sm">
+                      {order.paymentMethod || "Cash on Delivery"}
+                    </p>
                   </div>
                 </div>
 
@@ -155,31 +186,49 @@ export default function OrderDetailsPage() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">Status</p>
                     <div className="flex items-center justify-between">
-                      <p className="text-lg font-semibold">{order.order.status}</p>
+                      <p className="text-lg font-semibold">
+                        {order.order.status}
+                      </p>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm">Update Status</Button>
+                          <Button variant="outline" size="sm">
+                            Update Status
+                          </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleStatusUpdate('Pending')}>
+                          <DropdownMenuItem
+                            onClick={() => handleStatusUpdate("Pending")}
+                          >
                             Pending
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleStatusUpdate('Confirmed')}>
+                          <DropdownMenuItem
+                            onClick={() => handleStatusUpdate("Confirmed")}
+                          >
                             Confirmed
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleStatusUpdate('Processing')}>
+                          <DropdownMenuItem
+                            onClick={() => handleStatusUpdate("Processing")}
+                          >
                             Processing
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleStatusUpdate('Shipped')}>
+                          <DropdownMenuItem
+                            onClick={() => handleStatusUpdate("Shipped")}
+                          >
                             Shipped
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleStatusUpdate('Delivered')}>
+                          <DropdownMenuItem
+                            onClick={() => handleStatusUpdate("Delivered")}
+                          >
                             Delivered
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleStatusUpdate('Cancelled')}>
+                          <DropdownMenuItem
+                            onClick={() => handleStatusUpdate("Cancelled")}
+                          >
                             Cancelled
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleStatusUpdate('Refunded')}>
+                          <DropdownMenuItem
+                            onClick={() => handleStatusUpdate("Refunded")}
+                          >
                             Refunded
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -187,26 +236,42 @@ export default function OrderDetailsPage() {
                     </div>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Payment Status</p>
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Payment Status
+                    </p>
                     <div className="flex items-center justify-between">
-                      <Badge variant={getPaymentBadgeVariant(order.paymentStatus || 'unpaid')}>
-                        {order.paymentStatus || 'Unpaid'}
+                      <Badge
+                        variant={getPaymentBadgeVariant(
+                          order.paymentStatus || "unpaid"
+                        )}
+                      >
+                        {order.paymentStatus || "Unpaid"}
                       </Badge>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm">Update Payment</Button>
+                          <Button variant="outline" size="sm">
+                            Update Payment
+                          </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handlePaymentUpdate('Unpaid')}>
+                          <DropdownMenuItem
+                            onClick={() => handlePaymentUpdate("Unpaid")}
+                          >
                             Unpaid
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handlePaymentUpdate('Paid')}>
+                          <DropdownMenuItem
+                            onClick={() => handlePaymentUpdate("Paid")}
+                          >
                             Paid
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handlePaymentUpdate('Partial')}>
+                          <DropdownMenuItem
+                            onClick={() => handlePaymentUpdate("Partial")}
+                          >
                             Partial
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handlePaymentUpdate('Refunded')}>
+                          <DropdownMenuItem
+                            onClick={() => handlePaymentUpdate("Refunded")}
+                          >
                             Refunded
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -214,7 +279,9 @@ export default function OrderDetailsPage() {
                     </div>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground mb-4">Payment</p>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Payment
+                    </p>
                     <div className="space-y-3 text-sm">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Subtotal</span>
@@ -222,7 +289,9 @@ export default function OrderDetailsPage() {
                       </div>
                       <div className="border-t border-border pt-3 flex justify-between font-bold">
                         <span>Total</span>
-                        <span className="text-primary">JOD {Number(order.order.totalAmount || 0).toFixed(2)}</span>
+                        <span className="text-primary">
+                          JOD {Number(order.order.totalAmount || 0).toFixed(2)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -240,27 +309,44 @@ export default function OrderDetailsPage() {
               <div className="space-y-4">
                 {order.items && order.items.length > 0 ? (
                   order.items.map((item: any) => (
-                    <div key={item.id} className="flex gap-4 p-3 bg-muted/50 rounded-lg">
+                    <div
+                      key={item.id}
+                      className="flex gap-4 p-3 bg-muted/50 rounded-lg"
+                    >
                       {item.productSnapshot.mainImage && (
-                        <img 
-                          src={item?.productSnapshot?.mainImage || "/placeholder.svg"} 
-                          alt={item?.productSnapshot?.translations?.en?.name} 
+                        <img
+                          src={
+                            item?.productSnapshot?.mainImage ||
+                            "/placeholder.svg"
+                          }
+                          alt={item?.productSnapshot?.translations?.en?.name}
                           className="h-16 w-16 object-cover rounded"
                         />
                       )}
                       <div className="flex-1">
-                        <p className="font-medium">{item?.productSnapshot?.translations?.en?.name || item?.productSnapshot?.productCode}</p>
-                        <p className="text-sm text-muted-foreground">Qty: {item.quantity}</p>
+                        <p className="font-medium">
+                          {item?.productSnapshot?.translations?.en?.name ||
+                            item?.productSnapshot?.productCode}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Qty: {item.quantity}
+                        </p>
                       </div>
-                      <p className="font-semibold whitespace-nowrap">JOD {Number(item.totalPrice || 0).toFixed(2)}</p>
+                      <p className="font-semibold whitespace-nowrap">
+                        JOD {Number(item.totalPrice || 0).toFixed(2)}
+                      </p>
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-muted-foreground">No items found</p>
+                  <p className="text-sm text-muted-foreground">
+                    No items found
+                  </p>
                 )}
                 <div className="flex justify-between items-center pt-4 border-t border-border">
                   <span className="font-semibold">Subtotal</span>
-                  <span className="font-bold text-lg">JOD {calculatedSubtotal.toFixed(2)}</span>
+                  <span className="font-bold text-lg">
+                    JOD {calculatedSubtotal.toFixed(2)}
+                  </span>
                 </div>
               </div>
             </CardContent>
@@ -302,23 +388,32 @@ export default function OrderDetailsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Customer ID</p>
+                <p className="text-sm text-muted-foreground mb-1">
+                  Customer ID
+                </p>
                 <p className="font-mono text-sm">{user?.id}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Name</p>
-                <p className="font-medium">{user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'N/A' : 'Loading...'}</p>
+                <p className="font-medium">
+                  {user
+                    ? `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+                      "N/A"
+                    : "Loading..."}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Email</p>
-                <p className="font-medium text-sm break-all">{user?.email || 'N/A'}</p>
+                <p className="font-medium text-sm break-all">
+                  {user?.email || "N/A"}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Phone</p>
-                <p className="font-medium">{user?.phone || 'N/A'}</p>
+                <p className="font-medium">{user?.phone || "N/A"}</p>
               </div>
               <Button variant="outline" className="w-full mt-2" asChild>
-                <Link href={`/dashboard/users/${order.userId}`}>View customer</Link>
+                <Link href={`/dashboard/users/${user?.id}`}>View customer</Link>
               </Button>
             </CardContent>
           </Card>
@@ -337,5 +432,5 @@ export default function OrderDetailsPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
