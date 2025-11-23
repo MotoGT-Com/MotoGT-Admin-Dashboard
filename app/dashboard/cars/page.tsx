@@ -59,14 +59,11 @@ export default function CarsPage() {
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
 
   // Store and Language state
-  const [selectedStore, setSelectedStore] = useState(
-    settingsService.getSelectedStore()
-  );
-  const [selectedLanguage, setSelectedLanguage] = useState(
-    settingsService.getSelectedLanguage()
-  );
-  const stores = settingsService.getStores();
-  const languages = settingsService.getLanguages();
+  const [stores, setStores] = useState<any[]>([]);
+  const [languages, setLanguages] = useState<any[]>([]);
+  const [selectedStore, setSelectedStore] = useState<any | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<any | null>(null);
+  const [storesLoading, setStoresLoading] = useState(true);
 
   // Dialog states
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
@@ -91,11 +88,66 @@ export default function CarsPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
+  // Fetch stores and languages on mount
+  useEffect(() => {
+    const initializeStoresAndLanguages = async () => {
+      try {
+        setStoresLoading(true);
+
+        // Fetch stores and languages from API
+        const [fetchedStores, fetchedLanguages] = await Promise.all([
+          settingsService.getStores(),
+          settingsService.getLanguages(),
+        ]);
+
+        setStores(fetchedStores);
+        setLanguages(fetchedLanguages);
+
+        // Set selected store from localStorage or first store
+        const savedStore = settingsService.getSelectedStore();
+        if (savedStore && fetchedStores.some((s) => s.id === savedStore.id)) {
+          setSelectedStore(savedStore);
+        } else if (fetchedStores.length > 0) {
+          setSelectedStore(fetchedStores[0]);
+          settingsService.setSelectedStore(fetchedStores[0].id);
+        }
+
+        // Set selected language from localStorage or first language
+        const savedLanguage = settingsService.getSelectedLanguage();
+        if (
+          savedLanguage &&
+          fetchedLanguages.some((l) => l.id === savedLanguage.id)
+        ) {
+          setSelectedLanguage(savedLanguage);
+        } else if (fetchedLanguages.length > 0) {
+          setSelectedLanguage(fetchedLanguages[0]);
+          settingsService.setSelectedLanguage(fetchedLanguages[0].id);
+        }
+      } catch (error: any) {
+        console.error("Failed to fetch stores/languages:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load stores and languages",
+          variant: "destructive",
+        });
+      } finally {
+        setStoresLoading(false);
+      }
+    };
+
+    initializeStoresAndLanguages();
+  }, []);
+
   // Fetch all cars and group by brand
   const fetchCars = async () => {
+    if (!selectedStore) return; // Wait for store to be selected
+
     try {
       setLoading(true);
-      const cars = await carService.listCars({ limit: 1000 }); // Get all cars
+      const cars = await carService.listCars({
+        limit: 1000,
+        store_id: selectedStore.id, // Filter by selected store
+      });
       const groupedBrands = carService.groupCarsByBrand(cars);
       setBrands(groupedBrands);
 
@@ -116,8 +168,10 @@ export default function CarsPage() {
   };
 
   useEffect(() => {
-    fetchCars();
-  }, []);
+    if (selectedStore) {
+      fetchCars();
+    }
+  }, [selectedStore]);
 
   const handleStoreChange = (storeId: string) => {
     const store = stores.find((s) => s.id === storeId);
@@ -128,7 +182,7 @@ export default function CarsPage() {
         title: "Store Changed",
         description: `Switched to ${store.name}`,
       });
-      fetchCars(); // Reload cars for new store
+      // Cars will be refetched automatically via useEffect
     }
   };
 
@@ -248,9 +302,15 @@ export default function CarsPage() {
 
   // Handler: Clear image selection
   const handleClearImage = () => {
+    console.log("Clear Image");
     setImageFile(null);
     setImagePreview(null);
     setModelForm({ ...modelForm, car_image: "" });
+
+    // Also clear from editingCar if editing
+    if (editingCar) {
+      setEditingCar({ ...editingCar, car_image: "" });
+    }
   };
 
   // Handler: Open top-level Add Brand dialog (creates first model for new brand)
@@ -287,6 +347,15 @@ export default function CarsPage() {
 
   // Submit: Add or Edit Model
   const handleSubmitModel = async () => {
+    if (!selectedStore) {
+      toast({
+        title: "Error",
+        description: "Please select a store first",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setSubmitting(true);
 
@@ -300,7 +369,7 @@ export default function CarsPage() {
         engine_size: modelForm.engine_size || undefined,
         fuel_type: modelForm.fuel_type || undefined,
         transmission: modelForm.transmission || undefined,
-        car_image: modelForm.car_image || undefined,
+        car_image: modelForm.car_image || null, // Send null to clear image
         store_id: selectedStore.id,
       };
 
@@ -501,12 +570,14 @@ export default function CarsPage() {
     }
   };
 
-  if (loading) {
+  if (storesLoading || loading || !selectedStore) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-          <p className="mt-2 text-muted-foreground">Loading cars...</p>
+          <p className="mt-2 text-muted-foreground">
+            {storesLoading ? "Loading stores..." : "Loading cars..."}
+          </p>
         </div>
       </div>
     );
@@ -544,16 +615,23 @@ export default function CarsPage() {
                 Store
               </Label>
               <Select
-                value={selectedStore.id}
+                value={selectedStore?.id || ""}
                 onValueChange={handleStoreChange}
+                disabled={stores.length === 0}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue
+                    placeholder={
+                      stores.length === 0
+                        ? "No stores available"
+                        : "Select store"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {stores.map((store) => (
                     <SelectItem key={store.id} value={store.id}>
-                      {store.name} ({store.currency})
+                      {store.name} ({store.currencyCode})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -565,11 +643,18 @@ export default function CarsPage() {
                 Language
               </Label>
               <Select
-                value={selectedLanguage.id}
+                value={selectedLanguage?.id || ""}
                 onValueChange={handleLanguageChange}
+                disabled={languages.length === 0}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue
+                    placeholder={
+                      languages.length === 0
+                        ? "No languages available"
+                        : "Select language"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {languages.map((language) => (
@@ -638,7 +723,7 @@ export default function CarsPage() {
               <p className="text-muted-foreground">
                 No cars found in the database
               </p>
-              <Button className="mt-4 gap-2">
+              <Button className="mt-4 gap-2" onClick={handleAddModelTopLevel}>
                 <Plus size={16} />
                 Add Your First Car
               </Button>

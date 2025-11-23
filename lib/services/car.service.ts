@@ -29,6 +29,7 @@ export interface CarListParams {
   model?: string;
   yearFrom?: number;
   yearTo?: number;
+  store_id?: string;
 }
 
 export interface CarListData {
@@ -62,6 +63,7 @@ class CarService {
       if (params.model) queryParams.set('model', params.model);
       if (params.yearFrom) queryParams.set('yearFrom', String(params.yearFrom));
       if (params.yearTo) queryParams.set('yearTo', String(params.yearTo));
+      if (params.store_id) queryParams.set('store_id', params.store_id);
       
       const response = await apiClient.get<Car[]>(`/cars?${queryParams.toString()}`);
       return response.data.data;
