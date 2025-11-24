@@ -135,7 +135,6 @@ class ProductService {
       if (params.carModel) queryParams.set('carModel', params.carModel);
       
       const response = await apiClient.get<any>(`/admin/products?${queryParams.toString()}`);
-      console.log(response)
       
       // API returns { success: true, data: [...], meta: {...} }
       return {

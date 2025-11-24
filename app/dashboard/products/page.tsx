@@ -311,12 +311,6 @@ export default function ProductsPage() {
         carInfo: getCarInfo(product),
       }));
 
-      console.log(
-        "Fetched products:",
-        productsWithDisplayData.length,
-        "Total:",
-        response.meta.total
-      );
       setProducts(productsWithDisplayData);
       setTotalProducts(response.meta.total); // Use meta.total from server
     } catch (error: any) {
@@ -804,13 +798,6 @@ export default function ProductsPage() {
         }
       }
 
-      console.log(
-        editingProduct
-          ? "Product updated successfully:"
-          : "Product created successfully:",
-        savedProduct
-      );
-
       toast({
         title: "Success",
         description: editingProduct
@@ -819,12 +806,6 @@ export default function ProductsPage() {
       });
 
       handleCloseDialog();
-      console.log("Setting current page to 1, current filters:", {
-        filterCategory,
-        filterSubCategory,
-        filterCarBrand,
-        filterCarModel,
-      });
 
       // If already on page 1, manually trigger fetchProducts, otherwise setCurrentPage will trigger it
       if (currentPage === 1) {

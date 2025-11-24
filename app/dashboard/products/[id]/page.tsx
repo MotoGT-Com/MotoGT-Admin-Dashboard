@@ -122,8 +122,6 @@ export default function ProductDetailPage() {
             limit: 100,
           });
 
-          console.log("Categories", fetchedCategories);
-
           const categoriesWithNames = fetchedCategories.map((cat) => ({
             ...cat,
             name: categoryService.getCategoryName(cat, selectedLanguage.code),
