@@ -250,7 +250,6 @@ export default function CarsPage() {
 
   // Handler: Open Edit Model dialog
   const handleEditModel = (car: Car) => {
-    console.log(car);
     setEditingCar(car);
     setModelForm({
       brand: car.brand,
@@ -302,7 +301,6 @@ export default function CarsPage() {
 
   // Handler: Clear image selection
   const handleClearImage = () => {
-    console.log("Clear Image");
     setImageFile(null);
     setImagePreview(null);
     setModelForm({ ...modelForm, car_image: "" });
@@ -416,7 +414,6 @@ export default function CarsPage() {
 
         // Upload image if file selected
         if (imageFile) {
-          console.log("File Image", imageFile);
           setUploadingImage(true);
           try {
             const uploadResult = await uploadService.uploadImage(

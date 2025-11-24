@@ -114,10 +114,7 @@ class SettingsService {
         return this.cachedStores;
       }
 
-      console.log("Fetching Stores")
-
       const response = await storeService.listStores({ limit: 100, isActive: true });
-      console.log("Stores Response", response)
       this.cachedStores = response;
       return response;
     } catch (error) {
