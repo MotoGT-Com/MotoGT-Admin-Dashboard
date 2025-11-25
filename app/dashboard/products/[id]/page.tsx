@@ -1081,20 +1081,81 @@ export default function ProductDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center gap-3">
-                  <Layers className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Material</p>
-                    <p className="font-medium">{product.material}</p>
+                {product.brand && (
+                  <div className="flex items-center gap-3">
+                    <Tag className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Brand</p>
+                      <p className="font-medium">{product.brand}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Palette className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Color</p>
-                    <p className="font-medium">{product.color}</p>
+                )}
+                {/* Show size only for non-variant products */}
+                {product.size && !product.variants?.length && (
+                  <div className="flex items-center gap-3">
+                    <Package className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Size</p>
+                      <p className="font-medium">{product.size}</p>
+                    </div>
                   </div>
-                </div>
+                )}
+                {/* Show available sizes for variant products */}
+                {product.variants && product.variants.length > 0 && (
+                  <div className="flex items-center gap-3">
+                    <Package className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        Available Sizes
+                      </p>
+                      <p className="font-medium">
+                        {[
+                          ...new Set(
+                            product.variants.map((v) => v.size).filter(Boolean)
+                          ),
+                        ].join(", ") || "-"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {/* Material is always from specifications (product-level) */}
+                {product.material && (
+                  <div className="flex items-center gap-3">
+                    <Layers className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Material</p>
+                      <p className="font-medium">{product.material}</p>
+                    </div>
+                  </div>
+                )}
+                {/* Show color for non-variant products */}
+                {product.color && !product.variants?.length && (
+                  <div className="flex items-center gap-3">
+                    <Palette className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Color</p>
+                      <p className="font-medium">{product.color}</p>
+                    </div>
+                  </div>
+                )}
+                {/* Show available colors for variant products */}
+                {product.variants && product.variants.length > 0 && (
+                  <div className="flex items-center gap-3">
+                    <Palette className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        Available Colors
+                      </p>
+                      <p className="font-medium">
+                        {[
+                          ...new Set(
+                            product.variants.map((v) => v.color).filter(Boolean)
+                          ),
+                        ].join(", ") || "-"}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                   <Tag className="h-5 w-5 text-muted-foreground" />
                   <div>

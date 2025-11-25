@@ -806,8 +806,8 @@ export default function ProductsPage() {
         subCategoryId: formData.subCategory || undefined,
         price: parseFloat(formData.sellingPrice),
         stockQuantity: hasVariants ? 0 : parseInt(formData.quantity), // 0 if has variants
-        brand: !hasVariants ? formData.brand || undefined : undefined,
-        size: !hasVariants ? formData.size || undefined : undefined,
+        brand: formData.brand || undefined, // Always include brand if provided
+        size: !hasVariants ? formData.size || undefined : undefined, // Only for non-variant products
         isActive: true,
         translations: [
           {
@@ -817,23 +817,26 @@ export default function ProductsPage() {
           },
         ],
         specifications:
-          !hasVariants && (formData.color || formData.material)
+          formData.material || (!hasVariants && formData.color)
             ? [
-                ...(formData.color
-                  ? [
-                      {
-                        specKey: "color",
-                        specValue: formData.color,
-                        specType: "text" as const,
-                        isFilterable: true,
-                      },
-                    ]
-                  : []),
+                // Material is always a specification (product-level, same for all variants)
                 ...(formData.material
                   ? [
                       {
                         specKey: "material",
                         specValue: formData.material,
+                        specType: "text" as const,
+                        isFilterable: true,
+                      },
+                    ]
+                  : []),
+                // Color is only a specification for non-variant products
+                // For variant products, color is per variant
+                ...(!hasVariants && formData.color
+                  ? [
+                      {
+                        specKey: "color",
+                        specValue: formData.color,
                         specType: "text" as const,
                         isFilterable: true,
                       },
@@ -1740,7 +1743,6 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, brand: e.target.value })
                   }
-                  disabled={hasVariants}
                 />
               </div>
 
@@ -1773,8 +1775,10 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, material: e.target.value })
                   }
-                  disabled={hasVariants}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Applies to all variants
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -1788,9 +1792,13 @@ export default function ProductsPage() {
                   }
                   disabled={hasVariants}
                 />
-                {hasVariants && (
+                {hasVariants ? (
                   <p className="text-xs text-muted-foreground">
                     Color managed per variant
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Single color for product
                   </p>
                 )}
               </div>
