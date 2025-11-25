@@ -82,6 +82,8 @@ export default function ProductDetailPage() {
     subCategoryId: "",
     color: "",
     material: "",
+    brand: "",
+    size: "",
   });
   const [categoryName, setCategoryName] = useState<string>("");
   const [subcategoryName, setSubcategoryName] = useState<string>("");
@@ -168,26 +170,34 @@ export default function ProductDetailPage() {
         material: specs?.material?.value || "-",
       });
 
-      // Set category and subcategory names after categories are loaded
-      if (categories.length > 0 && selectedLanguage) {
+      // Set category and subcategory names from API response objects
+      if (response.category) {
+        setCategoryName(response.category.name);
+      } else if (categories.length > 0 && selectedLanguage) {
         const catName = categoryService.getCategoryNameById(
           response.categoryId,
           categories,
           selectedLanguage.code
         );
         setCategoryName(catName);
+      }
 
-        if (response.subCategoryId) {
-          const subCatName = categoryService.getSubcategoryNameById(
-            response.categoryId,
-            response.subCategoryId,
-            categories,
-            selectedLanguage.code
-          );
-          setSubcategoryName(subCatName);
-        } else {
-          setSubcategoryName("");
-        }
+      if (response.subCategory) {
+        setSubcategoryName(response.subCategory.name);
+      } else if (
+        response.subCategoryId &&
+        categories.length > 0 &&
+        selectedLanguage
+      ) {
+        const subCatName = categoryService.getSubcategoryNameById(
+          response.categoryId,
+          response.subCategoryId,
+          categories,
+          selectedLanguage.code
+        );
+        setSubcategoryName(subCatName);
+      } else {
+        setSubcategoryName("");
       }
     } catch (error: any) {
       console.error("Failed to fetch product:", error);
@@ -234,6 +244,8 @@ export default function ProductDetailPage() {
       subCategoryId: product.subCategoryId || "",
       color: specs?.color?.value || "",
       material: specs?.material?.value || "",
+      brand: specs?.brand?.value || "",
+      size: specs?.size?.value || "",
     });
 
     // Set subcategories if category is selected
@@ -268,6 +280,8 @@ export default function ProductDetailPage() {
       subCategoryId: "",
       color: "",
       material: "",
+      brand: "",
+      size: "",
     });
   };
 
@@ -294,6 +308,8 @@ export default function ProductDetailPage() {
         subCategoryId: formData.subCategoryId || undefined,
         price: parseFloat(formData.price),
         stockQuantity: parseInt(formData.stockQuantity),
+        brand: formData.brand || undefined,
+        size: formData.size || undefined,
         translations: [
           {
             languageId: selectedLanguage.id,
@@ -301,30 +317,30 @@ export default function ProductDetailPage() {
             description: formData.description || undefined,
           },
         ],
-        specs:
+        specifications:
           formData.color || formData.material
-            ? {
-                [selectedLanguage.code]: {
-                  ...(formData.color && {
-                    color: {
-                      type: "string",
-                      value: formData.color,
-                      isFilterable: true,
-                      sortOrder: 1,
-                      unit: null,
-                    },
-                  }),
-                  ...(formData.material && {
-                    material: {
-                      type: "string",
-                      value: formData.material,
-                      isFilterable: true,
-                      sortOrder: 2,
-                      unit: null,
-                    },
-                  }),
-                },
-              }
+            ? [
+                ...(formData.color
+                  ? [
+                      {
+                        specKey: "color",
+                        specValue: formData.color,
+                        specType: "text" as const,
+                        isFilterable: true,
+                      },
+                    ]
+                  : []),
+                ...(formData.material
+                  ? [
+                      {
+                        specKey: "material",
+                        specValue: formData.material,
+                        specType: "text" as const,
+                        isFilterable: true,
+                      },
+                    ]
+                  : []),
+              ]
             : undefined,
       };
 
@@ -865,6 +881,59 @@ export default function ProductDetailPage() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="brand">Brand</Label>
+                      <Input
+                        id="brand"
+                        value={formData.brand}
+                        onChange={(e) =>
+                          setFormData({ ...formData, brand: e.target.value })
+                        }
+                        placeholder="e.g., Akrapovic"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="size">Size</Label>
+                      <Input
+                        id="size"
+                        value={formData.size}
+                        onChange={(e) =>
+                          setFormData({ ...formData, size: e.target.value })
+                        }
+                        placeholder="e.g., Universal"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="color">Color/Design</Label>
+                      <Input
+                        id="color"
+                        value={formData.color}
+                        onChange={(e) =>
+                          setFormData({ ...formData, color: e.target.value })
+                        }
+                        placeholder="e.g., Carbon Fiber"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="material">Material</Label>
+                      <Input
+                        id="material"
+                        value={formData.material}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            material: e.target.value,
+                          })
+                        }
+                        placeholder="e.g., ABS Plastic"
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="description">Description</Label>
                     <Textarea
@@ -945,32 +1014,20 @@ export default function ProductDetailPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="color">Color/Design</Label>
-                      <Input
-                        id="color"
-                        value={formData.color}
-                        onChange={(e) =>
-                          setFormData({ ...formData, color: e.target.value })
-                        }
-                        placeholder="e.g., Carbon Fiber"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="material">Material</Label>
-                      <Input
-                        id="material"
-                        value={formData.material}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            material: e.target.value,
-                          })
-                        }
-                        placeholder="e.g., ABS Plastic"
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          description: e.target.value,
+                        })
+                      }
+                      placeholder="Enter product description"
+                      rows={3}
+                    />
                   </div>
                 </div>
               ) : (
@@ -1061,6 +1118,61 @@ export default function ProductDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Variants */}
+          {product.variants && product.variants.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Product Variants</CardTitle>
+                <CardDescription>
+                  This product has {product.variants.length} variant(s)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="text-left p-3 font-medium">SKU</th>
+                        <th className="text-left p-3 font-medium">Size</th>
+                        <th className="text-left p-3 font-medium">Color</th>
+                        <th className="text-left p-3 font-medium">
+                          Price Adjustment
+                        </th>
+                        <th className="text-left p-3 font-medium">Stock</th>
+                        <th className="text-left p-3 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {product.variants.map((variant, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="p-3 font-mono text-xs">
+                            {variant.sku}
+                          </td>
+                          <td className="p-3">{variant.size || "-"}</td>
+                          <td className="p-3">{variant.color || "-"}</td>
+                          <td className="p-3">
+                            {variant.priceAdjustment >= 0 ? "+" : ""}
+                            {variant.priceAdjustment.toFixed(3)} JOD
+                          </td>
+                          <td className="p-3">{variant.stockQuantity}</td>
+                          <td className="p-3">
+                            <Badge
+                              variant={
+                                variant.isActive ? "default" : "secondary"
+                              }
+                            >
+                              {variant.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Car Compatibility */}
           {product.carCompatibility && product.carCompatibility.length > 0 && (

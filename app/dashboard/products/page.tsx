@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -50,6 +52,8 @@ import {
   Store as StoreIcon,
   Globe,
   Loader2,
+  Edit,
+  Trash2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -167,6 +171,31 @@ export default function ProductsPage() {
   const [uploadedImages, setUploadedImages] = useState<ProductImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Variants state
+  const [hasVariants, setHasVariants] = useState(false);
+  const [variants, setVariants] = useState<
+    Array<{
+      id: string;
+      sku?: string;
+      size?: string;
+      color?: string;
+      priceAdjustment: number;
+      stockQuantity: number;
+      mainImage?: string;
+      images?: string[];
+      isActive: boolean;
+    }>
+  >([]);
+  const [isVariantDialogOpen, setIsVariantDialogOpen] = useState(false);
+  const [editingVariant, setEditingVariant] = useState<any | null>(null);
+  const [variantFormData, setVariantFormData] = useState({
+    size: "",
+    color: "",
+    priceAdjustment: "0",
+    stockQuantity: "0",
+    isActive: true,
+  });
 
   // Fetch stores and languages on mount
   useEffect(() => {
@@ -427,6 +456,8 @@ export default function ProductsPage() {
     category: "",
     subCategory: "",
     color: "",
+    brand: "",
+    size: "",
   });
 
   // Remove old vehicle makes filtering logic - will be handled by API
@@ -477,6 +508,8 @@ export default function ProductsPage() {
         category: product.categoryId,
         subCategory: product.subCategoryId || "",
         color: product.color || "",
+        brand: "",
+        size: "",
       });
 
       // Populate existing images for preview
@@ -537,6 +570,8 @@ export default function ProductsPage() {
         category: "",
         subCategory: "",
         color: "",
+        brand: "",
+        size: "",
       });
       setUploadedImages([]);
       setSelectedCarIds([]);
@@ -562,6 +597,8 @@ export default function ProductsPage() {
     setIsDialogOpen(false);
     setEditingProduct(null);
     setSelectedCarIds([]);
+    setHasVariants(false);
+    setVariants([]);
     setFormData({
       itemCode: "",
       name: "",
@@ -577,6 +614,8 @@ export default function ProductsPage() {
       category: "",
       subCategory: "",
       color: "",
+      brand: "",
+      size: "",
     });
     setUploadedImages([]);
   };
@@ -633,6 +672,68 @@ export default function ProductsPage() {
     });
   };
 
+  // Variant management functions
+  const handleOpenVariantDialog = (variant?: any) => {
+    if (variant) {
+      setEditingVariant(variant);
+      setVariantFormData({
+        size: variant.size || "",
+        color: variant.color || "",
+        priceAdjustment: variant.priceAdjustment.toString(),
+        stockQuantity: variant.stockQuantity.toString(),
+        isActive: variant.isActive,
+      });
+    } else {
+      setEditingVariant(null);
+      setVariantFormData({
+        size: "",
+        color: "",
+        priceAdjustment: "0",
+        stockQuantity: "0",
+        isActive: true,
+      });
+    }
+    setIsVariantDialogOpen(true);
+  };
+
+  const handleCloseVariantDialog = () => {
+    setIsVariantDialogOpen(false);
+    setEditingVariant(null);
+    setVariantFormData({
+      size: "",
+      color: "",
+      priceAdjustment: "0",
+      stockQuantity: "0",
+      isActive: true,
+    });
+  };
+
+  const handleSaveVariant = () => {
+    const variantData = {
+      id: editingVariant?.id || Date.now().toString(),
+      sku: editingVariant?.sku || "", // Keep existing SKU or empty for new variants (backend will generate)
+      size: variantFormData.size || undefined,
+      color: variantFormData.color || undefined,
+      priceAdjustment: parseFloat(variantFormData.priceAdjustment),
+      stockQuantity: parseInt(variantFormData.stockQuantity),
+      isActive: variantFormData.isActive,
+    };
+
+    if (editingVariant) {
+      setVariants((prev) =>
+        prev.map((v) => (v.id === editingVariant.id ? variantData : v))
+      );
+    } else {
+      setVariants((prev) => [...prev, variantData]);
+    }
+
+    handleCloseVariantDialog();
+  };
+
+  const handleDeleteVariant = (variantId: string) => {
+    setVariants((prev) => prev.filter((v) => v.id !== variantId));
+  };
+
   const handleSaveProduct = async () => {
     if (!selectedStore || !selectedLanguage) {
       toast({
@@ -648,12 +749,14 @@ export default function ProductsPage() {
       !formData.itemCode ||
       !formData.name ||
       !formData.sellingPrice ||
-      !formData.quantity
+      (!hasVariants && !formData.quantity)
     ) {
       toast({
         title: "Validation Error",
         description:
-          "Please fill in all required fields (Item Code, Name, Price, Quantity)",
+          "Please fill in all required fields (Item Code, Name, Price" +
+          (!hasVariants ? ", Quantity" : "") +
+          ")",
         variant: "destructive",
       });
       return;
@@ -663,6 +766,16 @@ export default function ProductsPage() {
       toast({
         title: "Validation Error",
         description: "Please enter a category ID",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate variants if enabled
+    if (hasVariants && variants.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "Please add at least one variant",
         variant: "destructive",
       });
       return;
@@ -685,14 +798,16 @@ export default function ProductsPage() {
     try {
       setLoading(true);
 
-      // Prepare product data
-      const productData = {
+      // Prepare product data according to new API structure (without images initially)
+      const productData: any = {
         itemCode: formData.itemCode,
         storeId: selectedStore.id,
         categoryId: formData.category,
         subCategoryId: formData.subCategory || undefined,
         price: parseFloat(formData.sellingPrice),
-        stockQuantity: parseInt(formData.quantity),
+        stockQuantity: hasVariants ? 0 : parseInt(formData.quantity), // 0 if has variants
+        brand: !hasVariants ? formData.brand || undefined : undefined,
+        size: !hasVariants ? formData.size || undefined : undefined,
         isActive: true,
         translations: [
           {
@@ -701,30 +816,30 @@ export default function ProductsPage() {
             description: formData.description || undefined,
           },
         ],
-        specs:
-          formData.color || formData.material
-            ? {
-                [selectedLanguage.code]: {
-                  ...(formData.color && {
-                    color: {
-                      type: "string",
-                      value: formData.color,
-                      isFilterable: true,
-                      sortOrder: 1,
-                      unit: null,
-                    },
-                  }),
-                  ...(formData.material && {
-                    material: {
-                      type: "string",
-                      value: formData.material,
-                      isFilterable: true,
-                      sortOrder: 2,
-                      unit: null,
-                    },
-                  }),
-                },
-              }
+        specifications:
+          !hasVariants && (formData.color || formData.material)
+            ? [
+                ...(formData.color
+                  ? [
+                      {
+                        specKey: "color",
+                        specValue: formData.color,
+                        specType: "text" as const,
+                        isFilterable: true,
+                      },
+                    ]
+                  : []),
+                ...(formData.material
+                  ? [
+                      {
+                        specKey: "material",
+                        specValue: formData.material,
+                        specType: "text" as const,
+                        isFilterable: true,
+                      },
+                    ]
+                  : []),
+              ]
             : undefined,
         // Add car compatibility for car-parts
         carCompatibility:
@@ -736,6 +851,20 @@ export default function ProductsPage() {
             : undefined,
       };
 
+      // Add variants if enabled
+      if (hasVariants && variants.length > 0) {
+        productData.variants = variants.map((v) => ({
+          ...(v.sku && { sku: v.sku }), // Only include SKU if it exists (for updates)
+          size: v.size || undefined,
+          color: v.color || undefined,
+          priceAdjustment: v.priceAdjustment,
+          stockQuantity: v.stockQuantity,
+          mainImage: v.mainImage || undefined,
+          images: v.images && v.images.length > 0 ? v.images : undefined,
+          isActive: v.isActive,
+        }));
+      }
+
       let savedProduct;
 
       if (editingProduct) {
@@ -745,12 +874,12 @@ export default function ProductsPage() {
           productData
         );
       } else {
-        // Create new product
+        // Create new product first
         savedProduct = await productService.createProduct(productData);
       }
 
-      // Upload images if any
-      if (uploadedImages.length > 0) {
+      // Upload images after product is created/updated
+      if (uploadedImages.length > 0 && savedProduct) {
         const primaryImage = uploadedImages.find((img) => img.isPrimary);
         const secondaryImage = uploadedImages.find((img) => img.isSecondary);
         const galleryImages = uploadedImages.filter(
@@ -784,9 +913,9 @@ export default function ProductsPage() {
         }
 
         // Upload gallery images
-        for (const img of galleryImages) {
-          const blob = await fetch(img.url).then((r) => r.blob());
-          const file = new File([blob], `gallery-${img.id}.jpg`, {
+        for (const [index, galleryImage] of galleryImages.entries()) {
+          const blob = await fetch(galleryImage.url).then((r) => r.blob());
+          const file = new File([blob], `gallery-${index}.jpg`, {
             type: "image/jpeg",
           });
           await uploadService.uploadImage(
@@ -1584,7 +1713,7 @@ export default function ProductsPage() {
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="quantity">Quantity *</Label>
+                <Label htmlFor="quantity">Quantity {!hasVariants && "*"}</Label>
                 <Input
                   id="quantity"
                   type="number"
@@ -1593,9 +1722,48 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, quantity: e.target.value })
                   }
+                  disabled={hasVariants}
+                />
+                {hasVariants && (
+                  <p className="text-xs text-muted-foreground">
+                    Stock managed per variant
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="brand">Brand</Label>
+                <Input
+                  id="brand"
+                  placeholder="e.g., BMW"
+                  value={formData.brand}
+                  onChange={(e) =>
+                    setFormData({ ...formData, brand: e.target.value })
+                  }
+                  disabled={hasVariants}
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="size">Size</Label>
+                <Input
+                  id="size"
+                  placeholder="e.g., M, L, XL"
+                  value={formData.size}
+                  onChange={(e) =>
+                    setFormData({ ...formData, size: e.target.value })
+                  }
+                  disabled={hasVariants}
+                />
+                {hasVariants && (
+                  <p className="text-xs text-muted-foreground">
+                    Size managed per variant
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="material">Material</Label>
                 <Input
@@ -1605,6 +1773,7 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, material: e.target.value })
                   }
+                  disabled={hasVariants}
                 />
               </div>
 
@@ -1617,7 +1786,13 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, color: e.target.value })
                   }
+                  disabled={hasVariants}
                 />
+                {hasVariants && (
+                  <p className="text-xs text-muted-foreground">
+                    Color managed per variant
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1678,6 +1853,136 @@ export default function ProductsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Variants Section */}
+            <div className="space-y-4 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label className="text-base">Product Variants</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Enable variants for products with multiple sizes/colors
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    checked={hasVariants}
+                    onCheckedChange={(checked) => {
+                      setHasVariants(checked);
+                      if (!checked) {
+                        setVariants([]);
+                      }
+                    }}
+                  />
+                  <Label>Has Variants</Label>
+                </div>
+              </div>
+
+              {hasVariants && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      {variants.length} variant(s) configured
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => handleOpenVariantDialog()}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add Variant
+                    </Button>
+                  </div>
+
+                  {variants.length > 0 && (
+                    <div className="border rounded-lg">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted">
+                            <tr>
+                              <th className="text-left p-2 font-medium">SKU</th>
+                              <th className="text-left p-2 font-medium">
+                                Size
+                              </th>
+                              <th className="text-left p-2 font-medium">
+                                Color
+                              </th>
+                              <th className="text-left p-2 font-medium">
+                                Price Adjustment
+                              </th>
+                              <th className="text-left p-2 font-medium">
+                                Stock
+                              </th>
+                              <th className="text-left p-2 font-medium">
+                                Status
+                              </th>
+                              <th className="text-left p-2 font-medium">
+                                Actions
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {variants.map((variant) => (
+                              <tr key={variant.id} className="border-t">
+                                <td className="p-2 font-mono text-xs">
+                                  {variant.sku || "Auto-generated"}
+                                </td>
+                                <td className="p-2">{variant.size || "-"}</td>
+                                <td className="p-2">{variant.color || "-"}</td>
+                                <td className="p-2">
+                                  {variant.priceAdjustment >= 0 ? "+" : ""}
+                                  {variant.priceAdjustment.toFixed(3)} JOD
+                                </td>
+                                <td className="p-2">{variant.stockQuantity}</td>
+                                <td className="p-2">
+                                  <Badge
+                                    variant={
+                                      variant.isActive ? "default" : "secondary"
+                                    }
+                                  >
+                                    {variant.isActive ? "Active" : "Inactive"}
+                                  </Badge>
+                                </td>
+                                <td className="p-2">
+                                  <div className="flex gap-1">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleOpenVariantDialog(variant)
+                                      }
+                                    >
+                                      <Edit className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleDeleteVariant(variant.id)
+                                      }
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!hasVariants && (
+                <p className="text-sm text-muted-foreground">
+                  Single size/color product. Use brand, size, color, and
+                  material fields above.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1788,6 +2093,118 @@ export default function ProductsPage() {
             </Button>
             <Button onClick={handleSaveProduct}>
               {editingProduct ? "Update Product" : "Add Product"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Variant Dialog */}
+      <Dialog open={isVariantDialogOpen} onOpenChange={setIsVariantDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {editingVariant ? "Edit Variant" : "Add Variant"}
+            </DialogTitle>
+            <DialogDescription>
+              Configure a product variant with specific size, color, and stock
+              details. SKU will be auto-generated.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="variant-size">Size</Label>
+                <Input
+                  id="variant-size"
+                  placeholder="e.g., S, M, L, XL"
+                  value={variantFormData.size}
+                  onChange={(e) =>
+                    setVariantFormData({
+                      ...variantFormData,
+                      size: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="variant-color">Color</Label>
+                <Input
+                  id="variant-color"
+                  placeholder="e.g., Red, Blue"
+                  value={variantFormData.color}
+                  onChange={(e) =>
+                    setVariantFormData({
+                      ...variantFormData,
+                      color: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="variant-price-adjustment">
+                  Price Adjustment (JOD)
+                </Label>
+                <Input
+                  id="variant-price-adjustment"
+                  type="number"
+                  step="0.001"
+                  placeholder="0.000"
+                  value={variantFormData.priceAdjustment}
+                  onChange={(e) =>
+                    setVariantFormData({
+                      ...variantFormData,
+                      priceAdjustment: e.target.value,
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Amount to add/subtract from base price
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="variant-stock">Stock Quantity *</Label>
+                <Input
+                  id="variant-stock"
+                  type="number"
+                  placeholder="0"
+                  value={variantFormData.stockQuantity}
+                  onChange={(e) =>
+                    setVariantFormData({
+                      ...variantFormData,
+                      stockQuantity: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="variant-active"
+                checked={variantFormData.isActive}
+                onCheckedChange={(checked) =>
+                  setVariantFormData({
+                    ...variantFormData,
+                    isActive: checked,
+                  })
+                }
+              />
+              <Label htmlFor="variant-active">Active</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseVariantDialog}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveVariant}>
+              {editingVariant ? "Update Variant" : "Add Variant"}
             </Button>
           </DialogFooter>
         </DialogContent>
