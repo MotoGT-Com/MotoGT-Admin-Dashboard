@@ -173,7 +173,11 @@ export default function ProductDetailPage() {
       // Set category and subcategory names from API response objects
       if (response.category) {
         setCategoryName(response.category.name);
-      } else if (categories.length > 0 && selectedLanguage) {
+      } else if (
+        categories.length > 0 &&
+        selectedLanguage &&
+        response.categoryId
+      ) {
         const catName = categoryService.getCategoryNameById(
           response.categoryId,
           categories,
@@ -186,6 +190,7 @@ export default function ProductDetailPage() {
         setSubcategoryName(response.subCategory.name);
       } else if (
         response.subCategoryId &&
+        response.categoryId &&
         categories.length > 0 &&
         selectedLanguage
       ) {
@@ -240,7 +245,7 @@ export default function ProductDetailPage() {
       price: product.price.toString(),
       stockQuantity: product.stockQuantity.toString(),
       description: product.description || "",
-      categoryId: product.categoryId,
+      categoryId: product.categoryId || "",
       subCategoryId: product.subCategoryId || "",
       color: specs?.color?.value || "",
       material: specs?.material?.value || "",
@@ -431,6 +436,31 @@ export default function ProductDetailPage() {
     }
   };
 
+  const buildMinimalUpdatePayload = (updates: any) => {
+    if (!product || !selectedLanguage || !selectedStore) return updates;
+
+    // Build a minimal but complete payload that satisfies API requirements
+    // while only changing the fields we actually want to update
+    return {
+      itemCode: product.itemCode,
+      storeId: selectedStore.id,
+      categoryId: product.categoryId || "",
+      subCategoryId: product.subCategoryId || undefined,
+      price: product.price,
+      stockQuantity: product.stockQuantity,
+      adminUserId: selectedStore.id, // Use store ID as fallback for admin user
+      translations: [
+        {
+          languageId: selectedLanguage.id,
+          name: product.name || product.itemCode,
+          description: product.description || undefined,
+        },
+      ],
+      // Spread the updates to override the above fields if needed
+      ...updates,
+    };
+  };
+
   const handleDeleteImage = async (
     imageUrl: string,
     imageType: "main" | "secondary" | "gallery"
@@ -438,19 +468,31 @@ export default function ProductDetailPage() {
     if (!product) return;
 
     try {
-      let updatedProduct: Partial<Product> = {};
+      let imageUpdates: any = {};
 
       if (imageType === "main") {
-        updatedProduct.mainImage = null as any;
-      } else if (imageType === "secondary") {
-        updatedProduct.secondaryImage = null as any;
-      } else if (imageType === "gallery") {
-        updatedProduct.images = product.images.filter(
-          (img) => img !== imageUrl
+        imageUpdates.mainImage = null;
+        // Keep images array clean - exclude main and secondary
+        imageUpdates.images = product.images.filter(
+          (img) => img !== product.mainImage && img !== product.secondaryImage
         );
+      } else if (imageType === "secondary") {
+        imageUpdates.secondaryImage = null;
+        // Keep images array clean - exclude main and secondary
+        imageUpdates.images = product.images.filter(
+          (img) => img !== product.mainImage && img !== product.secondaryImage
+        );
+      } else if (imageType === "gallery") {
+        // Filter out the deleted image and ensure main/secondary are excluded
+        imageUpdates.images = product.images
+          .filter((img) => img !== imageUrl)
+          .filter(
+            (img) => img !== product.mainImage && img !== product.secondaryImage
+          );
       }
 
-      await productService.updateProduct(productId, updatedProduct as any);
+      const updatePayload = buildMinimalUpdatePayload(imageUpdates);
+      await productService.updateProduct(productId, updatePayload);
 
       toast({
         title: "Success",
@@ -471,13 +513,20 @@ export default function ProductDetailPage() {
     if (!product) return;
 
     try {
-      // Remove the selected image from gallery (don't add old main image back)
-      const updatedImages = product.images.filter((img) => img !== imageUrl);
+      // Remove the selected image from gallery and ensure main/secondary images are excluded
+      const updatedImages = product.images
+        .filter((img) => img !== imageUrl)
+        .filter(
+          (img) => img !== product.mainImage && img !== product.secondaryImage
+        );
 
-      await productService.updateProduct(productId, {
+      const imageUpdates = {
         mainImage: imageUrl,
         images: updatedImages,
-      } as any);
+      };
+
+      const updatePayload = buildMinimalUpdatePayload(imageUpdates);
+      await productService.updateProduct(productId, updatePayload);
 
       toast({
         title: "Success",
@@ -498,13 +547,20 @@ export default function ProductDetailPage() {
     if (!product) return;
 
     try {
-      // Remove the selected image from gallery (don't add old secondary image back)
-      const updatedImages = product.images.filter((img) => img !== imageUrl);
+      // Remove the selected image from gallery and ensure main/secondary images are excluded
+      const updatedImages = product.images
+        .filter((img) => img !== imageUrl)
+        .filter(
+          (img) => img !== product.mainImage && img !== product.secondaryImage
+        );
 
-      await productService.updateProduct(productId, {
+      const imageUpdates = {
         secondaryImage: imageUrl,
         images: updatedImages,
-      } as any);
+      };
+
+      const updatePayload = buildMinimalUpdatePayload(imageUpdates);
+      await productService.updateProduct(productId, updatePayload);
 
       toast({
         title: "Success",
@@ -663,7 +719,7 @@ export default function ProductDetailPage() {
                       size="sm"
                       variant="destructive"
                       onClick={() =>
-                        handleDeleteImage(product.mainImage, "main")
+                        handleDeleteImage(product.mainImage!, "main")
                       }
                     >
                       <X className="h-4 w-4 mr-1" />
@@ -713,7 +769,7 @@ export default function ProductDetailPage() {
                       size="sm"
                       variant="destructive"
                       onClick={() =>
-                        handleDeleteImage(product.secondaryImage, "secondary")
+                        handleDeleteImage(product.secondaryImage!, "secondary")
                       }
                     >
                       <X className="h-4 w-4 mr-1" />
@@ -728,13 +784,7 @@ export default function ProductDetailPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-medium">
-                  Gallery Images (
-                  {product.images?.filter(
-                    (img) =>
-                      img !== product.mainImage &&
-                      img !== product.secondaryImage
-                  ).length || 0}
-                  )
+                  Gallery Images ({product.images.length || 0})
                 </p>
                 <Button
                   size="sm"
@@ -761,51 +811,45 @@ export default function ProductDetailPage() {
               </div>
               {product.images && product.images.length > 0 ? (
                 <div className="grid grid-cols-3 gap-2">
-                  {product.images
-                    .filter(
-                      (img) =>
-                        img !== product.mainImage &&
-                        img !== product.secondaryImage
-                    )
-                    .map((img, idx) => (
-                      <div
-                        key={idx}
-                        className="aspect-square relative rounded overflow-hidden border group"
-                      >
-                        <img
-                          src={img}
-                          alt={`${product.name} ${idx + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleSetAsPrimary(img)}
-                            className="text-xs"
-                          >
-                            <Star className="h-3 w-3 mr-1" />
-                            Primary
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleSetAsSecondary(img)}
-                            className="text-xs"
-                          >
-                            2nd
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleDeleteImage(img, "gallery")}
-                            className="text-xs"
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
+                  {product.images.map((img, idx) => (
+                    <div
+                      key={idx}
+                      className="aspect-square relative rounded overflow-hidden border group"
+                    >
+                      <img
+                        src={img}
+                        alt={`${product.name} ${idx + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleSetAsPrimary(img)}
+                          className="text-xs"
+                        >
+                          <Star className="h-3 w-3 mr-1" />
+                          Primary
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleSetAsSecondary(img)}
+                          className="text-xs"
+                        >
+                          2nd
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleDeleteImage(img, "gallery")}
+                          className="text-xs"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
                       </div>
-                    ))}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="text-center text-sm text-muted-foreground py-8 border rounded-lg">
