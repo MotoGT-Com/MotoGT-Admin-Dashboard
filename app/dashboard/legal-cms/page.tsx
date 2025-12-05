@@ -17,11 +17,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Save, Shield, ScrollText, Edit, X } from 'lucide-react'
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "sonner"
 
 export default function LegalCMSPage() {
-  const { toast } = useToast()
-  
   const [isEditMode, setIsEditMode] = useState(false)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
@@ -103,10 +101,7 @@ For questions about these Terms, contact us at support@motogt.com`)
 
   const handleSave = () => {
     // In a real implementation, this would save to a database
-    toast({
-      title: "Changes saved",
-      description: "Legal documents have been updated successfully.",
-    })
+    toast.success("Changes saved", { description: "Legal documents have been updated successfully.", })
     setHasChanges(false)
     setIsEditMode(false)
     setShowSaveDialog(false)

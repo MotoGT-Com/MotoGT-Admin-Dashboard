@@ -30,12 +30,10 @@ import {
   UserStatus,
   UserRole,
 } from "@/lib/services/user.service";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 export default function UsersPage() {
   const router = useRouter();
-  const { toast } = useToast();
-
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -78,11 +76,7 @@ export default function UsersPage() {
       setTotalUsers(response.total);
     } catch (error: any) {
       console.error("Failed to fetch users:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to fetch users",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to fetch users" });
     } finally {
       setLoading(false);
     }
@@ -104,27 +98,17 @@ export default function UsersPage() {
     try {
       if (currentStatus) {
         await userService.unverifyUser(userId);
-        toast({
-          title: "Success",
-          description: "User email unverified successfully",
-        });
+        toast.success("Success", { description: "User email unverified successfully", });
       } else {
         await userService.verifyUser(userId);
-        toast({
-          title: "Success",
-          description: "User email verified successfully",
-        });
+        toast.success("Success", { description: "User email verified successfully", });
       }
 
       // Refresh the users list
       await fetchUsers();
     } catch (error: any) {
       console.error("Failed to toggle verification:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update verification status",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to update verification status" });
     }
   };
 

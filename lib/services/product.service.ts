@@ -83,6 +83,9 @@ export interface ProductListParams {
   limit?: number;
   carBrand?: string;
   carModel?: string;
+  // New parameters for year-range based filtering
+  carId?: string;
+  carYear?: number;
 }
 
 export interface ProductListResponse {
@@ -182,6 +185,9 @@ class ProductService {
       if (params.search) queryParams.set('search', params.search);
       if (params.carBrand) queryParams.set('carBrand', params.carBrand);
       if (params.carModel) queryParams.set('carModel', params.carModel);
+      // New year-range based filtering
+      if (params.carId) queryParams.set('carId', params.carId);
+      if (params.carYear) queryParams.set('carYear', String(params.carYear));
       
       const response = await apiClient.get<any>(`/admin/products?${queryParams.toString()}`);
       
