@@ -7,12 +7,11 @@ import { ArrowLeft, ShieldCheck, ShieldX, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { userService, User } from "@/lib/services/user.service";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 export default function UserDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const { toast } = useToast();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -27,11 +26,7 @@ export default function UserDetailsPage() {
         setUser(userData);
       } catch (error: any) {
         console.error("Failed to fetch user:", error);
-        toast({
-          title: "Error",
-          description: error.message || "Failed to fetch user details",
-          variant: "destructive",
-        });
+        toast.error("Error", { description: error.message || "Failed to fetch user details" });
         // Redirect back if user not found
         setTimeout(() => router.back(), 2000);
       } finally {
@@ -48,16 +43,10 @@ export default function UserDetailsPage() {
     try {
       if (user.emailVerified) {
         await userService.unverifyUser(user.id);
-        toast({
-          title: "Success",
-          description: "User email unverified successfully",
-        });
+        toast.success("Success", { description: "User email unverified successfully", });
       } else {
         await userService.verifyUser(user.id);
-        toast({
-          title: "Success",
-          description: "User email verified successfully",
-        });
+        toast.success("Success", { description: "User email verified successfully", });
       }
 
       // Refresh user data
@@ -65,11 +54,7 @@ export default function UserDetailsPage() {
       setUser(updatedUser);
     } catch (error: any) {
       console.error("Failed to toggle verification:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update verification status",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to update verification status" });
     }
   };
 

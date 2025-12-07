@@ -54,6 +54,7 @@ import {
   Loader2,
   Edit,
   Trash2,
+  Calendar,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -62,11 +63,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { productService, Product } from "@/lib/services/product.service";
+import {
+  productCarCompatibilityService,
+  ProductCarCompatibility,
+} from "@/lib/services/product-car-compatibility.service";
 import { settingsService } from "@/lib/services/settings.service";
-import { carService, Car } from "@/lib/services/car.service";
+import { carService } from "@/lib/services/car.service";
 import { uploadService } from "@/lib/services/upload.service";
 import { categoryService, Category } from "@/lib/services/category.service";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
+
+// Local interface to avoid import issues
+interface CarData {
+  id: string;
+  brand: string;
+  model: string;
+  yearFrom?: number | null;
+  yearTo?: number | null;
+  year_from?: number | null;
+  year_to?: number | null;
+}
 
 interface ProductImage {
   id: string;
@@ -118,7 +134,6 @@ const getCarInfo = (product: Product): string => {
 };
 
 export default function ProductsPage() {
-  const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -140,6 +155,7 @@ export default function ProductsPage() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filterCarBrand, setFilterCarBrand] = useState("any");
   const [filterCarModel, setFilterCarModel] = useState("any");
+  const [filterCarYear, setFilterCarYear] = useState("any");
   const [filterMake, setFilterMake] = useState("any");
   const [filterModel, setFilterModel] = useState("any");
   const [filterYear, setFilterYear] = useState("any");
@@ -155,8 +171,21 @@ export default function ProductsPage() {
   const [subcategories, setSubcategories] = useState<Category[]>([]);
 
   // Available cars and selected car IDs for product compatibility
-  const [availableCars, setAvailableCars] = useState<Car[]>([]);
+  const [availableCars, setAvailableCars] = useState<CarData[]>([]);
   const [selectedCarIds, setSelectedCarIds] = useState<string[]>([]);
+
+  // Car compatibility management
+  const [compatibilities, setCompatibilities] = useState<
+    ProductCarCompatibility[]
+  >([]);
+  const [showCompatibilityDialog, setShowCompatibilityDialog] = useState(false);
+  const [editingCompatibility, setEditingCompatibility] =
+    useState<ProductCarCompatibility | null>(null);
+  const [compatibilityForm, setCompatibilityForm] = useState({
+    carId: "",
+    yearFrom: "",
+    yearTo: "",
+  });
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -271,10 +300,8 @@ export default function ProductsPage() {
         }
       } catch (error: any) {
         console.error("Failed to fetch stores/languages:", error);
-        toast({
-          title: "Error",
+        toast.error("Error", {
           description: "Failed to load stores and languages",
-          variant: "destructive",
         });
       } finally {
         setStoresLoading(false);
@@ -300,16 +327,25 @@ export default function ProductsPage() {
           router.replace("/dashboard/products", { scroll: false });
         } catch (error: any) {
           console.error("Failed to fetch product for editing:", error);
-          toast({
-            title: "Error",
+          toast.error("Error", {
             description: "Failed to load product for editing",
-            variant: "destructive",
           });
         }
       };
       fetchProductToEdit();
     }
   }, [searchParams, selectedStore, selectedLanguage]);
+
+  // Helper function to get car ID from brand/model
+  const getCarIdFromBrandModel = (
+    brand: string,
+    model: string
+  ): string | undefined => {
+    const car = availableCars.find(
+      (c) => c.brand === brand && c.model === model
+    );
+    return car?.id;
+  };
 
   // Fetch products when store or language changes
   const fetchProducts = async () => {
@@ -328,6 +364,12 @@ export default function ProductsPage() {
           filterSubCategory !== "any" ? filterSubCategory : undefined,
         carBrand: filterCarBrand !== "any" ? filterCarBrand : undefined,
         carModel: filterCarModel !== "any" ? filterCarModel : undefined,
+        // New year-range based filtering
+        carId:
+          filterCarBrand !== "any" && filterCarModel !== "any"
+            ? getCarIdFromBrandModel(filterCarBrand, filterCarModel)
+            : undefined,
+        carYear: filterCarYear !== "any" ? parseInt(filterCarYear) : undefined,
       });
 
       // Extract display data from each product
@@ -344,10 +386,8 @@ export default function ProductsPage() {
       setTotalProducts(response.meta.total); // Use meta.total from server
     } catch (error: any) {
       console.error("Failed to fetch products:", error);
-      toast({
-        title: "Error",
+      toast.error("Error", {
         description: error.message || "Failed to fetch products",
-        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -376,6 +416,7 @@ export default function ProductsPage() {
     filterSubCategory,
     filterCarBrand,
     filterCarModel,
+    filterCarYear,
     currentPage,
     rowsPerPage,
   ]);
@@ -389,6 +430,7 @@ export default function ProductsPage() {
     filterSubCategory,
     filterCarBrand,
     filterCarModel,
+    filterCarYear,
   ]);
 
   // Fetch car models when brand changes
@@ -410,6 +452,7 @@ export default function ProductsPage() {
       } else {
         setCarModels([]);
         setFilterCarModel("any");
+        setFilterCarYear("any");
       }
     };
     fetchModels();
@@ -421,8 +464,7 @@ export default function ProductsPage() {
       setSelectedStore(store);
       settingsService.setSelectedStore(storeId);
       setCurrentPage(1); // Reset to first page
-      toast({
-        title: "Store Changed",
+      toast.success("Store Changed", {
         description: `Switched to ${store.name}`,
       });
     }
@@ -434,8 +476,7 @@ export default function ProductsPage() {
       setSelectedLanguage(language);
       settingsService.setSelectedLanguage(languageId);
       setCurrentPage(1); // Reset to first page
-      toast({
-        title: "Language Changed",
+      toast.success("Language Changed", {
         description: `Switched to ${language.name}`,
       });
     }
@@ -553,6 +594,25 @@ export default function ProductsPage() {
       } else {
         setSelectedCarIds([]);
       }
+
+      // Load car compatibilities for existing product
+      if (product.id) {
+        await loadCompatibilities(product.id);
+      }
+
+      // Fetch available cars for the selected store
+      if (selectedStore) {
+        try {
+          const cars = await carService.listCars({
+            store_id: selectedStore.id,
+            limit: 1000,
+          });
+          setAvailableCars(cars || []);
+        } catch (error) {
+          console.error("Error fetching cars:", error);
+          setAvailableCars([]);
+        }
+      }
     } else {
       setEditingProduct(null);
       setFormData({
@@ -599,6 +659,10 @@ export default function ProductsPage() {
     setSelectedCarIds([]);
     setHasVariants(false);
     setVariants([]);
+    setCompatibilities([]);
+    setShowCompatibilityDialog(false);
+    setEditingCompatibility(null);
+    setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
     setFormData({
       itemCode: "",
       name: "",
@@ -618,6 +682,100 @@ export default function ProductsPage() {
       size: "",
     });
     setUploadedImages([]);
+  };
+
+  // Load car compatibilities for a product
+  const loadCompatibilities = async (productId: string) => {
+    try {
+      const data = await productCarCompatibilityService.listCompatibilities(
+        productId
+      );
+      setCompatibilities(data);
+    } catch (error: any) {
+      toast.error("Error", {
+        description: "Failed to load car compatibilities",
+      });
+    }
+  };
+
+  // Add car compatibility
+  const handleAddCompatibility = async () => {
+    if (!editingProduct) return;
+
+    try {
+      await productCarCompatibilityService.addCompatibility(editingProduct.id, {
+        car_id: compatibilityForm.carId,
+        year_from: parseInt(compatibilityForm.yearFrom),
+        year_to: compatibilityForm.yearTo
+          ? parseInt(compatibilityForm.yearTo)
+          : null,
+      });
+
+      toast.success("Success", {
+        description: "Car compatibility added",
+      });
+
+      await loadCompatibilities(editingProduct.id);
+      setShowCompatibilityDialog(false);
+      setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
+    } catch (error: any) {
+      toast.error("Error", {
+        description: error.message || "Failed to add compatibility",
+      });
+    }
+  };
+
+  // Update car compatibility
+  const handleUpdateCompatibility = async () => {
+    if (!editingProduct || !editingCompatibility) return;
+
+    try {
+      await productCarCompatibilityService.updateCompatibility(
+        editingProduct.id,
+        editingCompatibility.id,
+        {
+          year_from: parseInt(compatibilityForm.yearFrom),
+          year_to: compatibilityForm.yearTo
+            ? parseInt(compatibilityForm.yearTo)
+            : null,
+        }
+      );
+
+      toast.success("Success", {
+        description: "Compatibility updated",
+      });
+
+      await loadCompatibilities(editingProduct.id);
+      setShowCompatibilityDialog(false);
+      setEditingCompatibility(null);
+      setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
+    } catch (error: any) {
+      toast.error("Error", {
+        description: error.message || "Failed to update compatibility",
+      });
+    }
+  };
+
+  // Delete car compatibility
+  const handleDeleteCompatibility = async (compatibilityId: string) => {
+    if (!editingProduct) return;
+
+    try {
+      await productCarCompatibilityService.deleteCompatibility(
+        editingProduct.id,
+        compatibilityId
+      );
+
+      toast.success("Success", {
+        description: "Compatibility removed",
+      });
+
+      await loadCompatibilities(editingProduct.id);
+    } catch (error: any) {
+      toast.error("Error", {
+        description: error.message || "Failed to remove compatibility",
+      });
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -736,10 +894,8 @@ export default function ProductsPage() {
 
   const handleSaveProduct = async () => {
     if (!selectedStore || !selectedLanguage) {
-      toast({
-        title: "Error",
+      toast.error("Error", {
         description: "Please select a store and language",
-        variant: "destructive",
       });
       return;
     }
@@ -751,32 +907,26 @@ export default function ProductsPage() {
       !formData.sellingPrice ||
       (!hasVariants && !formData.quantity)
     ) {
-      toast({
-        title: "Validation Error",
+      toast.error("Validation Error", {
         description:
           "Please fill in all required fields (Item Code, Name, Price" +
           (!hasVariants ? ", Quantity" : "") +
           ")",
-        variant: "destructive",
       });
       return;
     }
 
     if (!formData.category) {
-      toast({
-        title: "Validation Error",
+      toast.error("Validation Error", {
         description: "Please enter a category ID",
-        variant: "destructive",
       });
       return;
     }
 
     // Validate variants if enabled
     if (hasVariants && variants.length === 0) {
-      toast({
-        title: "Validation Error",
+      toast.error("Validation Error", {
         description: "Please add at least one variant",
-        variant: "destructive",
       });
       return;
     }
@@ -787,10 +937,8 @@ export default function ProductsPage() {
       formData.productType === "car-parts" &&
       selectedCarIds.length === 0
     ) {
-      toast({
-        title: "Validation Error",
+      toast.error("Validation Error", {
         description: "Please select at least one compatible car for car parts",
-        variant: "destructive",
       });
       return;
     }
@@ -930,8 +1078,7 @@ export default function ProductsPage() {
         }
       }
 
-      toast({
-        title: "Success",
+      toast.success("Success", {
         description: editingProduct
           ? "Product updated successfully"
           : "Product created successfully",
@@ -947,10 +1094,8 @@ export default function ProductsPage() {
       }
     } catch (error: any) {
       console.error("Failed to create product:", error);
-      toast({
-        title: "Error",
+      toast.error("Error", {
         description: error.message || "Failed to create product",
-        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -964,8 +1109,7 @@ export default function ProductsPage() {
       setLoading(true);
       await productService.deleteProduct(deleteProduct.id);
 
-      toast({
-        title: "Success",
+      toast.success("Success", {
         description: `Product "${deleteProduct.name}" deleted successfully`,
       });
 
@@ -979,10 +1123,8 @@ export default function ProductsPage() {
       }
     } catch (error: any) {
       console.error("Failed to delete product:", error);
-      toast({
-        title: "Error",
+      toast.error("Error", {
         description: error.message || "Failed to delete product",
-        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -999,8 +1141,7 @@ export default function ProductsPage() {
 
   const handleImportProducts = () => {
     // TODO: Implement API integration for bulk import
-    toast({
-      title: "Coming Soon",
+    toast.info("Coming Soon", {
       description: "Bulk import functionality will be integrated with API",
     });
     setIsImportDialogOpen(false);
@@ -1198,7 +1339,7 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {/* Row 2: Car Brand and Model Filters */}
+        {/* Row 2: Car Brand, Model, and Year Filters */}
         <div className="flex gap-4">
           <div className="flex-1 min-w-[200px] space-y-2">
             <Label className="flex items-center gap-2">
@@ -1211,6 +1352,7 @@ export default function ProductsPage() {
                 setFilterCarBrand(value);
                 if (value === "any") {
                   setFilterCarModel("any");
+                  setFilterCarYear("any");
                 }
               }}
             >
@@ -1235,7 +1377,12 @@ export default function ProductsPage() {
             </Label>
             <Select
               value={filterCarModel}
-              onValueChange={setFilterCarModel}
+              onValueChange={(value) => {
+                setFilterCarModel(value);
+                if (value === "any") {
+                  setFilterCarYear("any");
+                }
+              }}
               disabled={filterCarBrand === "any" || carModels.length === 0}
             >
               <SelectTrigger className="w-full">
@@ -1258,13 +1405,49 @@ export default function ProductsPage() {
             </Select>
           </div>
 
-          {(filterCarBrand !== "any" || filterCarModel !== "any") && (
+          <div className="flex-1 min-w-[200px] space-y-2">
+            <Label className="flex items-center gap-2">
+              <Calendar size={16} />
+              Car Year
+            </Label>
+            <Select
+              value={filterCarYear}
+              onValueChange={setFilterCarYear}
+              disabled={filterCarBrand === "any" || filterCarModel === "any"}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue
+                  placeholder={
+                    filterCarModel === "any"
+                      ? "Select model first"
+                      : "All Years"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px]">
+                <SelectItem value="any">All Years</SelectItem>
+                {Array.from(
+                  { length: 35 },
+                  (_, i) => new Date().getFullYear() - 25 + i
+                ).map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {(filterCarBrand !== "any" ||
+            filterCarModel !== "any" ||
+            filterCarYear !== "any") && (
             <div className="flex items-end">
               <Button
                 variant="outline"
                 onClick={() => {
                   setFilterCarBrand("any");
                   setFilterCarModel("any");
+                  setFilterCarYear("any");
                 }}
               >
                 Clear Filters
@@ -2093,6 +2276,109 @@ export default function ProductsPage() {
                 )}
               </div>
             </div>
+
+            {/* Car Compatibility Section - Only for existing car-parts products */}
+            {editingProduct && formData.productType === "car-parts" && (
+              <div className="space-y-4 border-t border-primary/20 pt-4 mt-6 bg-primary/5 p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-lg font-semibold flex items-center gap-2">
+                      Car Compatibility Management
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Manage year ranges for compatible vehicles (new system)
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      // Ensure availableCars is loaded
+                      if (availableCars.length === 0 && selectedStore) {
+                        try {
+                          const cars = await carService.listCars({
+                            store_id: selectedStore.id,
+                            limit: 1000,
+                          });
+                          setAvailableCars(cars || []);
+                        } catch (error) {
+                          console.error("Error fetching cars:", error);
+                          toast.error("Error", {
+                            description: "Failed to load available cars",
+                          });
+                          return;
+                        }
+                      }
+                      setEditingCompatibility(null);
+                      setCompatibilityForm({
+                        carId: "",
+                        yearFrom: "",
+                        yearTo: "",
+                      });
+                      setShowCompatibilityDialog(true);
+                    }}
+                  >
+                    <Plus size={16} className="mr-2" />
+                    Add Compatibility
+                  </Button>
+                </div>
+
+                {compatibilities.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No car compatibilities added yet. Click &quot;Add
+                    Compatibility&quot; to begin.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {compatibilities.map((compat) => (
+                      <div
+                        key={compat.id}
+                        className="flex items-center justify-between p-3 border rounded-lg bg-accent/5"
+                      >
+                        <div className="flex-1">
+                          <p className="font-medium">
+                            {compat.carBrand} {compat.carModel}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {productCarCompatibilityService.formatYearRange(
+                              compat.yearFrom,
+                              compat.yearTo
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingCompatibility(compat);
+                              setCompatibilityForm({
+                                carId: compat.carId,
+                                yearFrom: compat.yearFrom.toString(),
+                                yearTo: compat.yearTo?.toString() || "",
+                              });
+                              setShowCompatibilityDialog(true);
+                            }}
+                          >
+                            <Edit size={16} />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteCompatibility(compat.id)}
+                          >
+                            <Trash2 size={16} className="text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -2101,6 +2387,127 @@ export default function ProductsPage() {
             </Button>
             <Button onClick={handleSaveProduct}>
               {editingProduct ? "Update Product" : "Add Product"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add/Edit Car Compatibility Dialog */}
+      <Dialog
+        open={showCompatibilityDialog}
+        onOpenChange={setShowCompatibilityDialog}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingCompatibility ? "Edit" : "Add"} Car Compatibility
+            </DialogTitle>
+            <DialogDescription>
+              Specify which car and year range this product is compatible with
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Car *</Label>
+              <Select
+                value={compatibilityForm.carId}
+                onValueChange={(value) =>
+                  setCompatibilityForm({ ...compatibilityForm, carId: value })
+                }
+                disabled={!!editingCompatibility}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      availableCars.length === 0
+                        ? "No cars available"
+                        : "Select car..."
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCars.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      No cars available. Please add cars to your store first.
+                    </div>
+                  ) : (
+                    availableCars.map((car) => (
+                      <SelectItem key={car.id} value={car.id}>
+                        {car.brand} {car.model}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              {editingCompatibility && (
+                <p className="text-xs text-muted-foreground">
+                  Car cannot be changed. Delete and create new compatibility if
+                  needed.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Year From *</Label>
+                <Input
+                  type="number"
+                  min="1900"
+                  max="2030"
+                  placeholder="e.g., 2015"
+                  value={compatibilityForm.yearFrom}
+                  onChange={(e) =>
+                    setCompatibilityForm({
+                      ...compatibilityForm,
+                      yearFrom: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Year To (optional)</Label>
+                <Input
+                  type="number"
+                  min="1900"
+                  max="2030"
+                  placeholder="Leave empty for current"
+                  value={compatibilityForm.yearTo}
+                  onChange={(e) =>
+                    setCompatibilityForm({
+                      ...compatibilityForm,
+                      yearTo: e.target.value,
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Leave empty if compatible with current production
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCompatibilityDialog(false);
+                setEditingCompatibility(null);
+                setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={
+                editingCompatibility
+                  ? handleUpdateCompatibility
+                  : handleAddCompatibility
+              }
+              disabled={!compatibilityForm.carId || !compatibilityForm.yearFrom}
+            >
+              {editingCompatibility ? "Update" : "Add"} Compatibility
             </Button>
           </DialogFooter>
         </DialogContent>

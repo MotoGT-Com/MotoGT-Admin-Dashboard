@@ -44,7 +44,7 @@ import { useState, useEffect } from "react";
 import { carService, BrandData, Car } from "@/lib/services/car.service";
 import { settingsService } from "@/lib/services/settings.service";
 import { uploadService } from "@/lib/services/upload.service";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 type DialogMode = "add-model" | "edit-brand" | "add-brand" | null;
 type DeleteTarget =
@@ -53,7 +53,6 @@ type DeleteTarget =
   | null;
 
 export default function CarsPage() {
-  const { toast } = useToast();
   const [brands, setBrands] = useState<BrandData[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
@@ -125,11 +124,7 @@ export default function CarsPage() {
         }
       } catch (error: any) {
         console.error("Failed to fetch stores/languages:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load stores and languages",
-          variant: "destructive",
-        });
+        toast.error("Error", { description: "Failed to load stores and languages" });
       } finally {
         setStoresLoading(false);
       }
@@ -157,11 +152,7 @@ export default function CarsPage() {
       }
     } catch (error: any) {
       console.error("Failed to fetch cars:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to fetch cars",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to fetch cars" });
     } finally {
       setLoading(false);
     }
@@ -178,10 +169,7 @@ export default function CarsPage() {
     if (store) {
       setSelectedStore(store);
       settingsService.setSelectedStore(storeId);
-      toast({
-        title: "Store Changed",
-        description: `Switched to ${store.name}`,
-      });
+      toast.success("Store Changed", { description: `Switched to ${store.name}`, });
       // Cars will be refetched automatically via useEffect
     }
   };
@@ -191,10 +179,7 @@ export default function CarsPage() {
     if (language) {
       setSelectedLanguage(language);
       settingsService.setSelectedLanguage(languageId);
-      toast({
-        title: "Language Changed",
-        description: `Switched to ${language.name}`,
-      });
+      toast.success("Language Changed", { description: `Switched to ${language.name}`, });
     }
   };
 
@@ -282,11 +267,7 @@ export default function CarsPage() {
     // Validate file
     const validation = uploadService.validateImageFile(file);
     if (!validation.valid) {
-      toast({
-        title: "Invalid File",
-        description: validation.error,
-        variant: "destructive",
-      });
+      toast.error("Invalid File", { description: validation.error });
       return;
     }
 
@@ -346,11 +327,7 @@ export default function CarsPage() {
   // Submit: Add or Edit Model
   const handleSubmitModel = async () => {
     if (!selectedStore) {
-      toast({
-        title: "Error",
-        description: "Please select a store first",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: "Please select a store first" });
       return;
     }
 
@@ -393,21 +370,13 @@ export default function CarsPage() {
               car_image: uploadResult.url,
             });
           } catch (uploadError: any) {
-            toast({
-              title: "Warning",
-              description:
-                "Model updated but image upload failed: " + uploadError.message,
-              variant: "destructive",
-            });
+            toast.error("Warning", { description: "Model updated but image upload failed: " + uploadError.message });
           } finally {
             setUploadingImage(false);
           }
         }
 
-        toast({
-          title: "Success",
-          description: "Model updated successfully",
-        });
+        toast.success("Success", { description: "Model updated successfully", });
       } else {
         // Add new model
         savedCar = await carService.createCar(carData);
@@ -428,21 +397,13 @@ export default function CarsPage() {
               car_image: uploadResult.url,
             });
           } catch (uploadError: any) {
-            toast({
-              title: "Warning",
-              description:
-                "Model created but image upload failed: " + uploadError.message,
-              variant: "destructive",
-            });
+            toast.error("Warning", { description: "Model created but image upload failed: " + uploadError.message });
           } finally {
             setUploadingImage(false);
           }
         }
 
-        toast({
-          title: "Success",
-          description: "Model added successfully",
-        });
+        toast.success("Success", { description: "Model added successfully", });
       }
 
       setDialogMode(null);
@@ -451,11 +412,7 @@ export default function CarsPage() {
       fetchCars();
     } catch (error: any) {
       console.error("Failed to save model:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to save model",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to save model" });
     } finally {
       setSubmitting(false);
     }
@@ -483,20 +440,13 @@ export default function CarsPage() {
         )
       );
 
-      toast({
-        title: "Success",
-        description: `Brand renamed from "${brandForm.oldName}" to "${brandForm.newName}"`,
-      });
+      toast.success("Success", { description: `Brand renamed from "${brandForm.oldName}" to "${brandForm.newName}"`, });
 
       setDialogMode(null);
       fetchCars();
     } catch (error: any) {
       console.error("Failed to edit brand:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to edit brand",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to edit brand" });
     } finally {
       setSubmitting(false);
     }
@@ -520,20 +470,13 @@ export default function CarsPage() {
         brandData.models.map((car) => carService.deleteCar(car.id))
       );
 
-      toast({
-        title: "Success",
-        description: `Brand "${deleteTarget.brand}" and all its models deleted`,
-      });
+      toast.success("Success", { description: `Brand "${deleteTarget.brand}" and all its models deleted`, });
 
       setDeleteTarget(null);
       fetchCars();
     } catch (error: any) {
       console.error("Failed to delete brand:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete brand",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to delete brand" });
     } finally {
       setSubmitting(false);
     }
@@ -548,20 +491,13 @@ export default function CarsPage() {
 
       await carService.deleteCar(deleteTarget.carId);
 
-      toast({
-        title: "Success",
-        description: `Model "${deleteTarget.model}" deleted`,
-      });
+      toast.success("Success", { description: `Model "${deleteTarget.model}" deleted`, });
 
       setDeleteTarget(null);
       fetchCars();
     } catch (error: any) {
       console.error("Failed to delete model:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete model",
-        variant: "destructive",
-      });
+      toast.error("Error", { description: error.message || "Failed to delete model" });
     } finally {
       setSubmitting(false);
     }
