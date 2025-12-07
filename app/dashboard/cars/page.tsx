@@ -76,8 +76,6 @@ export default function CarsPage() {
   const [modelForm, setModelForm] = useState({
     brand: "",
     model: "",
-    year_from: "",
-    year_to: "",
     engine_size: "",
     fuel_type: "",
     transmission: "",
@@ -124,7 +122,9 @@ export default function CarsPage() {
         }
       } catch (error: any) {
         console.error("Failed to fetch stores/languages:", error);
-        toast.error("Error", { description: "Failed to load stores and languages" });
+        toast.error("Error", {
+          description: "Failed to load stores and languages",
+        });
       } finally {
         setStoresLoading(false);
       }
@@ -152,7 +152,9 @@ export default function CarsPage() {
       }
     } catch (error: any) {
       console.error("Failed to fetch cars:", error);
-      toast.error("Error", { description: error.message || "Failed to fetch cars" });
+      toast.error("Error", {
+        description: error.message || "Failed to fetch cars",
+      });
     } finally {
       setLoading(false);
     }
@@ -169,7 +171,9 @@ export default function CarsPage() {
     if (store) {
       setSelectedStore(store);
       settingsService.setSelectedStore(storeId);
-      toast.success("Store Changed", { description: `Switched to ${store.name}`, });
+      toast.success("Store Changed", {
+        description: `Switched to ${store.name}`,
+      });
       // Cars will be refetched automatically via useEffect
     }
   };
@@ -179,7 +183,9 @@ export default function CarsPage() {
     if (language) {
       setSelectedLanguage(language);
       settingsService.setSelectedLanguage(languageId);
-      toast.success("Language Changed", { description: `Switched to ${language.name}`, });
+      toast.success("Language Changed", {
+        description: `Switched to ${language.name}`,
+      });
     }
   };
 
@@ -212,8 +218,6 @@ export default function CarsPage() {
     setModelForm({
       brand,
       model: "",
-      year_from: "",
-      year_to: "",
       engine_size: "",
       fuel_type: "",
       transmission: "",
@@ -239,8 +243,6 @@ export default function CarsPage() {
     setModelForm({
       brand: car.brand,
       model: car.model,
-      year_from: car.year_from?.toString() || "",
-      year_to: car.year_to?.toString() || "",
       engine_size: car.engine_size || "",
       fuel_type: car.fuel_type || "",
       transmission: car.transmission || "",
@@ -298,8 +300,6 @@ export default function CarsPage() {
     setModelForm({
       brand: "",
       model: "",
-      year_from: "",
-      year_to: "",
       engine_size: "",
       fuel_type: "",
       transmission: "",
@@ -314,8 +314,6 @@ export default function CarsPage() {
     setModelForm({
       brand: brands.length > 0 ? brands[0].brand : "",
       model: "",
-      year_from: "",
-      year_to: "",
       engine_size: "",
       fuel_type: "",
       transmission: "",
@@ -337,10 +335,6 @@ export default function CarsPage() {
       const carData = {
         brand: modelForm.brand,
         model: modelForm.model,
-        year_from: modelForm.year_from
-          ? parseInt(modelForm.year_from)
-          : undefined,
-        year_to: modelForm.year_to ? parseInt(modelForm.year_to) : undefined,
         engine_size: modelForm.engine_size || undefined,
         fuel_type: modelForm.fuel_type || undefined,
         transmission: modelForm.transmission || undefined,
@@ -370,13 +364,16 @@ export default function CarsPage() {
               car_image: uploadResult.url,
             });
           } catch (uploadError: any) {
-            toast.error("Warning", { description: "Model updated but image upload failed: " + uploadError.message });
+            toast.error("Warning", {
+              description:
+                "Model updated but image upload failed: " + uploadError.message,
+            });
           } finally {
             setUploadingImage(false);
           }
         }
 
-        toast.success("Success", { description: "Model updated successfully", });
+        toast.success("Success", { description: "Model updated successfully" });
       } else {
         // Add new model
         savedCar = await carService.createCar(carData);
@@ -397,13 +394,16 @@ export default function CarsPage() {
               car_image: uploadResult.url,
             });
           } catch (uploadError: any) {
-            toast.error("Warning", { description: "Model created but image upload failed: " + uploadError.message });
+            toast.error("Warning", {
+              description:
+                "Model created but image upload failed: " + uploadError.message,
+            });
           } finally {
             setUploadingImage(false);
           }
         }
 
-        toast.success("Success", { description: "Model added successfully", });
+        toast.success("Success", { description: "Model added successfully" });
       }
 
       setDialogMode(null);
@@ -412,7 +412,9 @@ export default function CarsPage() {
       fetchCars();
     } catch (error: any) {
       console.error("Failed to save model:", error);
-      toast.error("Error", { description: error.message || "Failed to save model" });
+      toast.error("Error", {
+        description: error.message || "Failed to save model",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -440,13 +442,17 @@ export default function CarsPage() {
         )
       );
 
-      toast.success("Success", { description: `Brand renamed from "${brandForm.oldName}" to "${brandForm.newName}"`, });
+      toast.success("Success", {
+        description: `Brand renamed from "${brandForm.oldName}" to "${brandForm.newName}"`,
+      });
 
       setDialogMode(null);
       fetchCars();
     } catch (error: any) {
       console.error("Failed to edit brand:", error);
-      toast.error("Error", { description: error.message || "Failed to edit brand" });
+      toast.error("Error", {
+        description: error.message || "Failed to edit brand",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -470,13 +476,17 @@ export default function CarsPage() {
         brandData.models.map((car) => carService.deleteCar(car.id))
       );
 
-      toast.success("Success", { description: `Brand "${deleteTarget.brand}" and all its models deleted`, });
+      toast.success("Success", {
+        description: `Brand "${deleteTarget.brand}" and all its models deleted`,
+      });
 
       setDeleteTarget(null);
       fetchCars();
     } catch (error: any) {
       console.error("Failed to delete brand:", error);
-      toast.error("Error", { description: error.message || "Failed to delete brand" });
+      toast.error("Error", {
+        description: error.message || "Failed to delete brand",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -491,13 +501,17 @@ export default function CarsPage() {
 
       await carService.deleteCar(deleteTarget.carId);
 
-      toast.success("Success", { description: `Model "${deleteTarget.model}" deleted`, });
+      toast.success("Success", {
+        description: `Model "${deleteTarget.model}" deleted`,
+      });
 
       setDeleteTarget(null);
       fetchCars();
     } catch (error: any) {
       console.error("Failed to delete model:", error);
-      toast.error("Error", { description: error.message || "Failed to delete model" });
+      toast.error("Error", {
+        description: error.message || "Failed to delete model",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -866,30 +880,6 @@ export default function CarsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="yearFrom">Year From</Label>
-              <Input
-                id="yearFrom"
-                type="number"
-                value={modelForm.year_from}
-                onChange={(e) =>
-                  setModelForm({ ...modelForm, year_from: e.target.value })
-                }
-                placeholder="e.g., 2015"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="yearTo">Year To</Label>
-              <Input
-                id="yearTo"
-                type="number"
-                value={modelForm.year_to}
-                onChange={(e) =>
-                  setModelForm({ ...modelForm, year_to: e.target.value })
-                }
-                placeholder="e.g., 2020"
-              />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="engineSize">Engine Size</Label>
               <Input
                 id="engineSize"
@@ -1066,30 +1056,6 @@ export default function CarsPage() {
                 }
                 placeholder="e.g., Camry"
                 required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="year_from-new">Year From</Label>
-              <Input
-                id="year_from-new"
-                type="number"
-                value={modelForm.year_from}
-                onChange={(e) =>
-                  setModelForm({ ...modelForm, year_from: e.target.value })
-                }
-                placeholder="e.g., 2015"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="year_to-new">Year To</Label>
-              <Input
-                id="year_to-new"
-                type="number"
-                value={modelForm.year_to}
-                onChange={(e) =>
-                  setModelForm({ ...modelForm, year_to: e.target.value })
-                }
-                placeholder="e.g., 2020"
               />
             </div>
             <div className="space-y-2">
