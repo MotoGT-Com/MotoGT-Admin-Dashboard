@@ -967,7 +967,13 @@ export default function ProductsPage() {
         brand: formData.brand || undefined, // Always include brand if provided
         size: !hasVariants ? formData.size || undefined : undefined, // Only for non-variant products
         productType:
-          formData.productType === "car-parts" ? "car_parts" : undefined, // Add product type
+          formData.productType === "car-parts"
+            ? "car_parts"
+            : formData.productType === "riding-gear"
+            ? "riding_gear"
+            : formData.productType === "cleaning-and-accessories"
+            ? "cleaning_and_accessories"
+            : undefined, // Map frontend product type to backend values
         isActive: true,
         adminUserId: user?.userId,
         translations: [
@@ -1768,20 +1774,23 @@ export default function ProductsPage() {
               <Label htmlFor="productType">Product Type *</Label>
               <Select
                 value={formData.productType}
-                onValueChange={(value: "car-parts" | "non-car-parts") => {
+                onValueChange={(
+                  value:
+                    | "car-parts"
+                    | "riding-gear"
+                    | "cleaning-and-accessories"
+                ) => {
                   setFormData({
                     ...formData,
                     productType: value,
-                    carMake: value === "non-car-parts" ? "" : formData.carMake,
-                    carModel:
-                      value === "non-car-parts" ? "" : formData.carModel,
+                    carMake: value !== "car-parts" ? "" : formData.carMake,
+                    carModel: value !== "car-parts" ? "" : formData.carModel,
                     carYearFrom:
-                      value === "non-car-parts" ? "" : formData.carYearFrom,
-                    carYearTo:
-                      value === "non-car-parts" ? "" : formData.carYearTo,
+                      value !== "car-parts" ? "" : formData.carYearFrom,
+                    carYearTo: value !== "car-parts" ? "" : formData.carYearTo,
                   });
-                  // Clear selected cars when changing to non-car-parts
-                  if (value === "non-car-parts") {
+                  // Clear selected cars when changing to non-car-parts types
+                  if (value !== "car-parts") {
                     setSelectedCarCompatibility([]);
                   }
                 }}
@@ -1790,18 +1799,17 @@ export default function ProductsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="car-parts">
-                    Car Parts (requires vehicle specs)
-                  </SelectItem>
-                  <SelectItem value="non-car-parts">
-                    Non-Car Parts (cleaning, accessories, etc.)
+                  <SelectItem value="car-parts">Car Parts</SelectItem>
+                  <SelectItem value="riding-gear">Riding Gear</SelectItem>
+                  <SelectItem value="cleaning-and-accessories">
+                    Cleaning & Accessories
                   </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 {formData.productType === "car-parts"
                   ? "This product requires vehicle make, model, and year specifications."
-                  : "This product does not require vehicle specifications (e.g., cleaning products, riding jackets, helmets)."}
+                  : "This product does not require vehicle specifications."}
               </p>
             </div>
 
