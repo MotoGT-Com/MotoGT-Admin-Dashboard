@@ -325,8 +325,10 @@ export default function OrderDetailsPage() {
                       )}
                       <div className="flex-1">
                         <p className="font-medium">
-                          {item?.productSnapshot?.translations?.en?.name ||
-                            item?.productSnapshot?.productCode}
+                          {item?.productSnapshot?.translations?.en?.name}
+                        </p>
+                        <p className="font-medium">
+                          {item?.productSnapshot?.productCode}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           Qty: {item.quantity}

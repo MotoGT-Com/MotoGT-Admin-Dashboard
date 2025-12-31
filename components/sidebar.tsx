@@ -25,6 +25,7 @@ import {
   Shield,
   ScrollText,
   Warehouse,
+  Percent,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -67,6 +68,18 @@ const navigationGroups: NavGroup[] = [
       },
       // { icon: <FileText size={20} />, label: "Collections", href: "/dashboard/collections" },
       { icon: <Car size={20} />, label: "Cars", href: "/dashboard/cars" },
+    ],
+  },
+  {
+    label: "Marketing",
+    items: [
+      {
+        icon: <Percent size={20} />,
+        label: "Promo Codes",
+        href: "/dashboard/promo-codes",
+      },
+      // { icon: <TicketIcon size={20} />, label: "Coupon Codes", href: "/dashboard/coupons" },
+      // { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
     ],
   },
   // {
