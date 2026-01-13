@@ -1800,9 +1800,9 @@ export default function ProductsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="car-parts">Car Parts</SelectItem>
-                  <SelectItem value="riding-gear">Riding Gear</SelectItem>
+                  <SelectItem value="riding-gear">Motorcycles</SelectItem>
                   <SelectItem value="cleaning-and-accessories">
-                    Cleaning & Accessories
+                    Car Care & Accessories
                   </SelectItem>
                 </SelectContent>
               </Select>

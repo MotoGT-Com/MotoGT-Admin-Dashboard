@@ -9,7 +9,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ArrowLeft, Download } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  Truck,
+  CheckCircle,
+  XCircle,
+  DollarSign,
+} from "lucide-react";
 import Link from "next/link";
 import { downloadInvoice } from "@/lib/invoice-generator";
 import {
@@ -23,6 +30,12 @@ import { orderService, Order } from "@/lib/services/order.service";
 import { userService, User } from "@/lib/services/user.service";
 import { toast } from "sonner";
 import { useParams, useRouter } from "next/navigation";
+import {
+  ShipOrderModal,
+  DeliverOrderModal,
+  CancelOrderModal,
+  RefundOrderModal,
+} from "@/components/order-action-modals";
 
 export default function OrderDetailsPage() {
   const params = useParams();
@@ -32,6 +45,12 @@ export default function OrderDetailsPage() {
   const [order, setOrder] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+
+  // Modal states
+  const [shipModalOpen, setShipModalOpen] = useState(false);
+  const [deliverModalOpen, setDeliverModalOpen] = useState(false);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchOrderDetails = async () => {
@@ -56,19 +75,51 @@ export default function OrderDetailsPage() {
     }
   }, [orderId]);
 
-  const handleStatusUpdate = async (newStatus: string) => {
+  const refreshOrderData = async () => {
     try {
-      await orderService.updateOrderStatus(orderId, newStatus as any);
-      setOrder({ order: { ...order.order, status: newStatus } });
-      toast.success(`Order status updated to ${newStatus}`);
+      const orderData = await orderService.getOrderById(orderId);
+      setOrder(orderData);
+      if (orderData.order.customer) {
+        setUser(orderData.order.customer);
+      }
     } catch (error: any) {
-      toast.error(error.message || "Failed to update order status");
+      toast.error(error.message || "Failed to refresh order");
     }
   };
 
-  const handlePaymentUpdate = (newPayment: string) => {
-    setOrder({ order: { ...order.order, paymentStatus: newPayment } });
-    toast.success(`Payment status updated to ${newPayment}`);
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "pending":
+        return "bg-yellow-900/30 text-yellow-300";
+      case "confirmed":
+        return "bg-blue-900/30 text-blue-300";
+      case "processing":
+        return "bg-purple-900/30 text-purple-300";
+      case "shipped":
+        return "bg-orange-900/30 text-orange-300";
+      case "delivered":
+        return "bg-green-900/30 text-green-300";
+      case "cancelled":
+        return "bg-red-900/30 text-red-300";
+      case "refunded":
+        return "bg-red-950/50 text-red-400";
+      default:
+        return "bg-gray-900/30 text-gray-300";
+    }
+  };
+
+  const getPaymentMethodLabel = (type: string | null | undefined) => {
+    if (!type) return "N/A";
+    switch (type.toLowerCase()) {
+      case "credit_card":
+        return "Credit Card";
+      case "cod":
+        return "Cash on Delivery";
+      case "cliq":
+        return "CliQ";
+      default:
+        return type;
+    }
   };
 
   if (isLoading) {
@@ -144,10 +195,60 @@ export default function OrderDetailsPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => downloadInvoice(order)} className="gap-2">
-          <Download size={18} />
-          Download Invoice
-        </Button>
+        <div className="flex gap-2">
+          {/* Action buttons based on status */}
+          {order.order.status === "pending" && (
+            <Button
+              variant="destructive"
+              onClick={() => setCancelModalOpen(true)}
+              className="gap-2"
+            >
+              <XCircle size={18} />
+              Cancel Order
+            </Button>
+          )}
+          {(order.order.status === "confirmed" ||
+            order.order.status === "processing") && (
+            <>
+              <Button onClick={() => setShipModalOpen(true)} className="gap-2">
+                <Truck size={18} />
+                Ship Order
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => setCancelModalOpen(true)}
+                className="gap-2"
+              >
+                <XCircle size={18} />
+                Cancel Order
+              </Button>
+            </>
+          )}
+          {order.order.status === "shipped" && (
+            <Button onClick={() => setDeliverModalOpen(true)} className="gap-2">
+              <CheckCircle size={18} />
+              Mark as Delivered
+            </Button>
+          )}
+          {order.order.status === "delivered" && (
+            <Button
+              variant="destructive"
+              onClick={() => setRefundModalOpen(true)}
+              className="gap-2"
+            >
+              <DollarSign size={18} />
+              Process Refund
+            </Button>
+          )}
+          <Button
+            onClick={() => downloadInvoice(order)}
+            variant="outline"
+            className="gap-2"
+          >
+            <Download size={18} />
+            Download Invoice
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -175,8 +276,8 @@ export default function OrderDetailsPage() {
                     <p className="text-sm text-muted-foreground mt-3">
                       Payment Method
                     </p>
-                    <p className="text-sm">
-                      {order.paymentMethod || "Cash on Delivery"}
+                    <p className="text-sm font-medium">
+                      {getPaymentMethodLabel(order.order.paymentMethod?.type)}
                     </p>
                   </div>
                 </div>
@@ -184,55 +285,18 @@ export default function OrderDetailsPage() {
                 {/* Right: Status and Totals */}
                 <div className="space-y-6">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Status</p>
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Order Status
+                    </p>
                     <div className="flex items-center justify-between">
-                      <p className="text-lg font-semibold">
-                        {order.order.status}
-                      </p>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            Update Status
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => handleStatusUpdate("Pending")}
-                          >
-                            Pending
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleStatusUpdate("Confirmed")}
-                          >
-                            Confirmed
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleStatusUpdate("Processing")}
-                          >
-                            Processing
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleStatusUpdate("Shipped")}
-                          >
-                            Shipped
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleStatusUpdate("Delivered")}
-                          >
-                            Delivered
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleStatusUpdate("Cancelled")}
-                          >
-                            Cancelled
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleStatusUpdate("Refunded")}
-                          >
-                            Refunded
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                          order.order.status
+                        )}`}
+                      >
+                        {order.order.status?.charAt(0).toUpperCase() +
+                          order.order.status?.slice(1)}
+                      </span>
                     </div>
                   </div>
                   <div>
@@ -240,42 +304,19 @@ export default function OrderDetailsPage() {
                       Payment Status
                     </p>
                     <div className="flex items-center justify-between">
-                      <Badge
-                        variant={getPaymentBadgeVariant(
-                          order.paymentStatus || "unpaid"
-                        )}
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          order.order.payment?.status === "captured"
+                            ? "bg-green-900/30 text-green-300"
+                            : order.order.payment?.status === "pending"
+                            ? "bg-yellow-900/30 text-yellow-300"
+                            : order.order.payment?.status === "failed"
+                            ? "bg-red-900/30 text-red-300"
+                            : "bg-gray-900/30 text-gray-300"
+                        }`}
                       >
-                        {order.paymentStatus || "Unpaid"}
-                      </Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            Update Payment
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => handlePaymentUpdate("Unpaid")}
-                          >
-                            Unpaid
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handlePaymentUpdate("Paid")}
-                          >
-                            Paid
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handlePaymentUpdate("Partial")}
-                          >
-                            Partial
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handlePaymentUpdate("Refunded")}
-                          >
-                            Refunded
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        {order.order.payment?.status || "N/A"}
+                      </span>
                     </div>
                   </div>
                   <div>
@@ -433,6 +474,33 @@ export default function OrderDetailsPage() {
           )}
         </div>
       </div>
+
+      {/* Action Modals */}
+      <ShipOrderModal
+        isOpen={shipModalOpen}
+        onClose={() => setShipModalOpen(false)}
+        orderId={orderId}
+        onSuccess={refreshOrderData}
+      />
+      <DeliverOrderModal
+        isOpen={deliverModalOpen}
+        onClose={() => setDeliverModalOpen(false)}
+        orderId={orderId}
+        onSuccess={refreshOrderData}
+      />
+      <CancelOrderModal
+        isOpen={cancelModalOpen}
+        onClose={() => setCancelModalOpen(false)}
+        orderId={orderId}
+        onSuccess={refreshOrderData}
+      />
+      <RefundOrderModal
+        isOpen={refundModalOpen}
+        onClose={() => setRefundModalOpen(false)}
+        orderId={orderId}
+        orderTotal={Number(order?.order?.totalAmount || 0)}
+        onSuccess={refreshOrderData}
+      />
     </div>
   );
 }
