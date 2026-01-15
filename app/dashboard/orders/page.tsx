@@ -174,7 +174,12 @@ function OrdersContent() {
     "refunded",
   ];
 
-  const paymentMethodOptions = ["credit_card", "cod", "cliq"];
+  const paymentMethodOptions = [
+    "credit_card",
+    "cod",
+    "cliq",
+    "card_on_delivery",
+  ];
 
   const getPaymentMethodLabel = (type: string | null | undefined) => {
     if (!type) return "N/A";
@@ -182,9 +187,11 @@ function OrdersContent() {
       case "credit_card":
         return "Credit Card";
       case "cod":
-        return "Cash on Delivery";
+        return "Cash On Delivery";
       case "cliq":
-        return "CliQ";
+        return "Cliq";
+      case "card_on_delivery":
+        return "Card On Delivery";
       default:
         return type;
     }

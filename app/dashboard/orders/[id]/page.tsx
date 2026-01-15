@@ -114,9 +114,11 @@ export default function OrderDetailsPage() {
       case "credit_card":
         return "Credit Card";
       case "cod":
-        return "Cash on Delivery";
+        return "Cash On Delivery";
       case "cliq":
-        return "CliQ";
+        return "Cliq";
+      case "card_on_delivery":
+        return "Card On Delivery";
       default:
         return type;
     }

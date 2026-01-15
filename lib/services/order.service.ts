@@ -3,7 +3,7 @@ import { User } from './user.service';
 
 // Types based on API spec
 export interface PaymentMethod {
-  type: 'credit_card' | 'cod' | 'cliq' | string;
+  type: 'credit_card' | 'cod' | 'cliq' | 'card_on_delivery' | string;
   isPrepaid: boolean;
   isPostpaid: boolean;
   isCOD: boolean;
