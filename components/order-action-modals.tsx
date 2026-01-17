@@ -37,16 +37,11 @@ export function ShipOrderModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!trackingNumber.trim() || !carrier.trim()) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-
     try {
       setIsLoading(true);
       await orderService.shipOrder(orderId, {
-        trackingNumber: trackingNumber.trim(),
-        carrier: carrier.trim(),
+        trackingNumber: trackingNumber.trim() || undefined,
+        carrier: carrier.trim() || undefined,
         shipmentNotes: shipmentNotes.trim() || undefined,
       });
       toast.success("Order shipped successfully");
@@ -69,33 +64,27 @@ export function ShipOrderModal({
         <DialogHeader>
           <DialogTitle>Ship Order</DialogTitle>
           <DialogDescription>
-            Enter shipping details to mark this order as shipped.
+            Mark this order as shipped. You can optionally add shipping details.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="trackingNumber">
-                Tracking Number <span className="text-red-500">*</span>
-              </Label>
+              <Label htmlFor="trackingNumber">Tracking Number (Optional)</Label>
               <Input
                 id="trackingNumber"
                 placeholder="e.g., 1Z999AA10123456784"
                 value={trackingNumber}
                 onChange={(e) => setTrackingNumber(e.target.value)}
-                required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="carrier">
-                Carrier <span className="text-red-500">*</span>
-              </Label>
+              <Label htmlFor="carrier">Carrier (Optional)</Label>
               <Input
                 id="carrier"
                 placeholder="e.g., UPS, FedEx, DHL"
                 value={carrier}
                 onChange={(e) => setCarrier(e.target.value)}
-                required
               />
             </div>
             <div className="space-y-2">
@@ -141,7 +130,6 @@ export function DeliverOrderModal({
   orderId,
   onSuccess,
 }: DeliverOrderModalProps) {
-  const [deliveryNotes, setDeliveryNotes] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -149,13 +137,10 @@ export function DeliverOrderModal({
 
     try {
       setIsLoading(true);
-      await orderService.deliverOrder(orderId, {
-        deliveryNotes: deliveryNotes.trim() || undefined,
-      });
+      await orderService.deliverOrder(orderId, {});
       toast.success("Order marked as delivered successfully");
       onSuccess();
       onClose();
-      setDeliveryNotes("");
     } catch (error: any) {
       toast.error(error.message || "Failed to mark order as delivered");
     } finally {
@@ -169,22 +154,11 @@ export function DeliverOrderModal({
         <DialogHeader>
           <DialogTitle>Mark as Delivered</DialogTitle>
           <DialogDescription>
-            Confirm that this order has been delivered to the customer.
+            Confirm that this order has been delivered to the customer. For COD
+            orders, a payment record will be automatically created.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="deliveryNotes">Delivery Notes (Optional)</Label>
-              <Textarea
-                id="deliveryNotes"
-                placeholder="Any notes about the delivery"
-                value={deliveryNotes}
-                onChange={(e) => setDeliveryNotes(e.target.value)}
-                rows={3}
-              />
-            </div>
-          </div>
           <DialogFooter>
             <Button
               type="button"

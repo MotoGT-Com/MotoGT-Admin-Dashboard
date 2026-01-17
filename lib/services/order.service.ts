@@ -67,8 +67,8 @@ export interface UpdateOrderStatusRequest {
 }
 
 export interface ShipOrderRequest {
-  trackingNumber: string;
-  carrier: string;
+  trackingNumber?: string;
+  carrier?: string;
   shippedAt?: Date;
   shipmentNotes?: string;
 }
