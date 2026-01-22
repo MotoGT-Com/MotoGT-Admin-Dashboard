@@ -71,6 +71,10 @@ import { settingsService } from "@/lib/services/settings.service";
 import { carService } from "@/lib/services/car.service";
 import { uploadService } from "@/lib/services/upload.service";
 import { categoryService, Category } from "@/lib/services/category.service";
+import {
+  productTypeService,
+  ProductType,
+} from "@/lib/services/product-type.service";
 import { useAuth } from "@/lib/context/auth-context";
 import { toast } from "sonner";
 
@@ -95,34 +99,34 @@ interface ProductImage {
 // Helper functions to extract display data
 const getProductName = (
   product: Product,
-  languageCode: string = "en"
+  languageCode: string = "en",
 ): string => {
   const translation = product.translations?.find(
-    (t) => t.languageCode === languageCode
+    (t) => t.languageCode === languageCode,
   );
   return translation?.name || product.itemCode;
 };
 
 const getProductDescription = (
   product: Product,
-  languageCode: string = "en"
+  languageCode: string = "en",
 ): string => {
   const translation = product.translations?.find(
-    (t) => t.languageCode === languageCode
+    (t) => t.languageCode === languageCode,
   );
   return translation?.description || "";
 };
 
 const getProductColor = (
   product: Product,
-  languageCode: string = "en"
+  languageCode: string = "en",
 ): string => {
   return product.specs?.[languageCode]?.color?.value || "-";
 };
 
 const getProductMaterial = (
   product: Product,
-  languageCode: string = "en"
+  languageCode: string = "en",
 ): string => {
   return product.specs?.[languageCode]?.material?.value || "-";
 };
@@ -161,8 +165,12 @@ export default function ProductsPage() {
   const [filterMake, setFilterMake] = useState("any");
   const [filterModel, setFilterModel] = useState("any");
   const [filterYear, setFilterYear] = useState("any");
+  const [filterProductType, setFilterProductType] = useState("any");
   const [filterCategory, setFilterCategory] = useState("any");
   const [filterSubCategory, setFilterSubCategory] = useState("any");
+
+  // Product types
+  const [productTypes, setProductTypes] = useState<ProductType[]>([]);
 
   // Car brands and models
   const [carBrands, setCarBrands] = useState<string[]>([]);
@@ -171,6 +179,7 @@ export default function ProductsPage() {
   // Categories and subcategories
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Category[]>([]);
+  const [modalCategories, setModalCategories] = useState<Category[]>([]); // Categories for the Add/Edit modal
 
   // Available cars and selected car IDs for product compatibility
   const [availableCars, setAvailableCars] = useState<CarData[]>([]);
@@ -274,6 +283,12 @@ export default function ProductsPage() {
           const brands = [...new Set(cars.map((car) => car.brand))].sort();
           setCarBrands(brands);
 
+          // Fetch product types
+          const fetchedProductTypes = await productTypeService.getAll(
+            fetchedLanguages[0].id,
+          );
+          setProductTypes(fetchedProductTypes);
+
           // Fetch categories
           const fetchedCategories = await categoryService.listCategories({
             storeId: fetchedStores[0].id,
@@ -288,14 +303,14 @@ export default function ProductsPage() {
             ...cat,
             name: categoryService.getCategoryName(
               cat,
-              fetchedLanguages[0].code
+              fetchedLanguages[0].code,
             ),
             // Also add names to subcategories
             subcategories: cat.subcategories?.map((sub) => ({
               ...sub,
               name: categoryService.getCategoryName(
                 sub,
-                fetchedLanguages[0].code
+                fetchedLanguages[0].code,
               ),
             })),
           }));
@@ -324,7 +339,7 @@ export default function ProductsPage() {
         try {
           const productToEdit = await productService.getProductById(
             editProductId,
-            selectedLanguage.id
+            selectedLanguage.id,
           );
           handleOpenDialog(productToEdit);
           // Clear the query parameter
@@ -343,10 +358,10 @@ export default function ProductsPage() {
   // Helper function to get car ID from brand/model
   const getCarIdFromBrandModel = (
     brand: string,
-    model: string
+    model: string,
   ): string | undefined => {
     const car = availableCars.find(
-      (c) => c.brand === brand && c.model === model
+      (c) => c.brand === brand && c.model === model,
     );
     return car?.id;
   };
@@ -363,6 +378,8 @@ export default function ProductsPage() {
         page: currentPage,
         limit: rowsPerPage,
         search: debouncedSearchQuery || undefined,
+        productTypeId:
+          filterProductType !== "any" ? filterProductType : undefined,
         categoryId: filterCategory !== "any" ? filterCategory : undefined,
         subCategoryId:
           filterSubCategory !== "any" ? filterSubCategory : undefined,
@@ -416,6 +433,7 @@ export default function ProductsPage() {
     selectedStore,
     selectedLanguage,
     debouncedSearchQuery,
+    filterProductType,
     filterCategory,
     filterSubCategory,
     filterCarBrand,
@@ -430,12 +448,53 @@ export default function ProductsPage() {
     setCurrentPage(1);
   }, [
     debouncedSearchQuery,
+    filterProductType,
     filterCategory,
     filterSubCategory,
     filterCarBrand,
     filterCarModel,
     filterCarYear,
   ]);
+
+  // Fetch categories when product type filter changes
+  useEffect(() => {
+    const fetchFilteredCategories = async () => {
+      if (!selectedStore || !selectedLanguage) return;
+
+      try {
+        const fetchedCategories = await categoryService.listCategories({
+          storeId: selectedStore.id,
+          languageId: selectedLanguage.id,
+          productTypeId:
+            filterProductType !== "any" ? filterProductType : undefined,
+          isActive: true,
+          includeSubcategories: true,
+          limit: 100,
+        });
+
+        const categoriesWithNames = fetchedCategories.map((cat) => ({
+          ...cat,
+          name: categoryService.getCategoryName(cat, selectedLanguage.code),
+          subcategories: cat.subcategories?.map((sub) => ({
+            ...sub,
+            name: categoryService.getCategoryName(sub, selectedLanguage.code),
+          })),
+        }));
+
+        setCategories(categoriesWithNames);
+
+        // Reset category and subcategory filters when product type changes
+        if (filterProductType !== "any") {
+          setFilterCategory("any");
+          setFilterSubCategory("any");
+        }
+      } catch (error: any) {
+        console.error("Failed to fetch filtered categories:", error);
+      }
+    };
+
+    fetchFilteredCategories();
+  }, [filterProductType, selectedStore, selectedLanguage]);
 
   // Fetch car models when brand changes
   useEffect(() => {
@@ -490,7 +549,7 @@ export default function ProductsPage() {
     itemCode: "",
     name: "",
     sellingPrice: "",
-    productType: "car-parts", // Added product type to form data
+    productType: "", // Product type ID from database
     carMake: "",
     carModel: "",
     carYearFrom: "",
@@ -508,18 +567,56 @@ export default function ProductsPage() {
   // Remove old vehicle makes filtering logic - will be handled by API
   // Categories and subcategories will come from API in future
 
+  // Fetch categories for the modal when product type in form changes
+  useEffect(() => {
+    const fetchModalCategories = async () => {
+      if (!selectedStore || !selectedLanguage || !isDialogOpen) return;
+
+      try {
+        const fetchedCategories = await categoryService.listCategories({
+          storeId: selectedStore.id,
+          languageId: selectedLanguage.id,
+          productTypeId: formData.productType || undefined,
+          isActive: true,
+          includeSubcategories: true,
+          limit: 100,
+        });
+
+        const categoriesWithNames = fetchedCategories.map((cat) => ({
+          ...cat,
+          name: categoryService.getCategoryName(cat, selectedLanguage.code),
+          subcategories: cat.subcategories?.map((sub) => ({
+            ...sub,
+            name: categoryService.getCategoryName(sub, selectedLanguage.code),
+          })),
+        }));
+
+        setModalCategories(categoriesWithNames);
+
+        // Reset category and subcategory when product type changes
+        if (formData.productType) {
+          setFormData((prev) => ({ ...prev, category: "", subCategory: "" }));
+        }
+      } catch (error: any) {
+        console.error("Failed to fetch modal categories:", error);
+      }
+    };
+
+    fetchModalCategories();
+  }, [formData.productType, selectedStore, selectedLanguage, isDialogOpen]);
+
   // Fetch subcategories when category in form changes
   useEffect(() => {
     if (formData.category && formData.category !== "") {
-      const selectedCategory = categories.find(
-        (cat) => cat.id === formData.category
+      const selectedCategory = modalCategories.find(
+        (cat) => cat.id === formData.category,
       );
       if (selectedCategory && selectedCategory.subcategories) {
         const subsWithNames = selectedCategory.subcategories.map((sub) => ({
           ...sub,
           name: categoryService.getCategoryName(
             sub,
-            selectedLanguage?.code || "en"
+            selectedLanguage?.code || "en",
           ),
         }));
         setSubcategories(subsWithNames);
@@ -530,7 +627,7 @@ export default function ProductsPage() {
       setSubcategories([]);
       setFormData((prev) => ({ ...prev, subCategory: "" }));
     }
-  }, [formData.category, categories, selectedLanguage]);
+  }, [formData.category, modalCategories, selectedLanguage]);
 
   // For now, products page will display data from API
   // Editing functionality will be added in next steps
@@ -542,7 +639,7 @@ export default function ProductsPage() {
         itemCode: product.itemCode,
         name: product.name || "",
         sellingPrice: product.price.toString(),
-        productType: "car-parts",
+        productType: product.productTypeId || "",
         carMake: "",
         carModel: "",
         carYearFrom: "",
@@ -599,7 +696,7 @@ export default function ProductsPage() {
             carId: cc.carId,
             yearFrom: cc.carYearFrom || undefined,
             yearTo: cc.carYearTo || undefined,
-          }))
+          })),
         );
       } else {
         setSelectedCarCompatibility([]);
@@ -629,7 +726,7 @@ export default function ProductsPage() {
         itemCode: "",
         name: "",
         sellingPrice: "",
-        productType: "car-parts",
+        productType: "",
         carMake: "",
         carModel: "",
         carYearFrom: "",
@@ -677,7 +774,7 @@ export default function ProductsPage() {
       itemCode: "",
       name: "",
       sellingPrice: "",
-      productType: "car-parts",
+      productType: "",
       carMake: "",
       carModel: "",
       carYearFrom: "",
@@ -697,9 +794,8 @@ export default function ProductsPage() {
   // Load car compatibilities for a product
   const loadCompatibilities = async (productId: string) => {
     try {
-      const data = await productCarCompatibilityService.listCompatibilities(
-        productId
-      );
+      const data =
+        await productCarCompatibilityService.listCompatibilities(productId);
       setCompatibilities(data);
     } catch (error: any) {
       toast.error("Error", {
@@ -748,7 +844,7 @@ export default function ProductsPage() {
           year_to: compatibilityForm.yearTo
             ? parseInt(compatibilityForm.yearTo)
             : null,
-        }
+        },
       );
 
       toast.success("Success", {
@@ -773,7 +869,7 @@ export default function ProductsPage() {
     try {
       await productCarCompatibilityService.deleteCompatibility(
         editingProduct.id,
-        compatibilityId
+        compatibilityId,
       );
 
       toast.success("Success", {
@@ -824,7 +920,7 @@ export default function ProductsPage() {
       prev.map((img) => ({
         ...img,
         isPrimary: img.id === imageId,
-      }))
+      })),
     );
   };
 
@@ -889,7 +985,7 @@ export default function ProductsPage() {
 
     if (editingVariant) {
       setVariants((prev) =>
-        prev.map((v) => (v.id === editingVariant.id ? variantData : v))
+        prev.map((v) => (v.id === editingVariant.id ? variantData : v)),
       );
     } else {
       setVariants((prev) => [...prev, variantData]);
@@ -941,10 +1037,13 @@ export default function ProductsPage() {
       return;
     }
 
-    // Validate car compatibility for car-parts (only for new products)
+    // Validate car compatibility for car_parts product types (only for new products)
+    const selectedProductType = productTypes.find(
+      (pt) => pt.id === formData.productType,
+    );
     if (
       !editingProduct &&
-      formData.productType === "car-parts" &&
+      selectedProductType?.code === "car_parts" &&
       selectedCarCompatibility.length === 0
     ) {
       toast.error("Validation Error", {
@@ -966,14 +1065,7 @@ export default function ProductsPage() {
         stockQuantity: hasVariants ? 0 : parseInt(formData.quantity), // 0 if has variants
         brand: formData.brand || undefined, // Always include brand if provided
         size: !hasVariants ? formData.size || undefined : undefined, // Only for non-variant products
-        productType:
-          formData.productType === "car-parts"
-            ? "car_parts"
-            : formData.productType === "riding-gear"
-            ? "riding_gear"
-            : formData.productType === "cleaning-and-accessories"
-            ? "cleaning_and_accessories"
-            : undefined, // Map frontend product type to backend values
+        productTypeId: formData.productType || undefined, // Product type ID from database
         isActive: true,
         adminUserId: user?.userId,
         translations: [
@@ -1013,10 +1105,10 @@ export default function ProductsPage() {
                   : []),
               ]
             : undefined,
-        // Add car compatibility for car-parts with year ranges
+        // Add car compatibility for car_parts product types with year ranges
         carCompatibility:
-          formData.productType === "car-parts" &&
-          selectedCarCompatibility.length > 0
+          productTypes.find((pt) => pt.id === formData.productType)?.code ===
+            "car_parts" && selectedCarCompatibility.length > 0
             ? selectedCarCompatibility.map((compat) => ({
                 carId: compat.carId,
                 yearFrom: compat.yearFrom,
@@ -1045,7 +1137,7 @@ export default function ProductsPage() {
         // Update existing product
         savedProduct = await productService.updateProduct(
           editingProduct.id,
-          productData
+          productData,
         );
       } else {
         // Create new product first
@@ -1057,7 +1149,7 @@ export default function ProductsPage() {
         const primaryImage = uploadedImages.find((img) => img.isPrimary);
         const secondaryImage = uploadedImages.find((img) => img.isSecondary);
         const galleryImages = uploadedImages.filter(
-          (img) => !img.isPrimary && !img.isSecondary
+          (img) => !img.isPrimary && !img.isSecondary,
         );
 
         // Upload primary image
@@ -1068,7 +1160,7 @@ export default function ProductsPage() {
             file,
             "product",
             savedProduct.id,
-            "main_image"
+            "main_image",
           );
         }
 
@@ -1082,7 +1174,7 @@ export default function ProductsPage() {
             file,
             "product",
             savedProduct.id,
-            "secondary_image"
+            "secondary_image",
           );
         }
 
@@ -1096,7 +1188,7 @@ export default function ProductsPage() {
             file,
             "product",
             savedProduct.id,
-            "images"
+            "images",
           );
         }
       }
@@ -1362,7 +1454,102 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {/* Row 2: Car Brand, Model, and Year Filters */}
+        {/* Row 2: Product Type and Category Filters */}
+        <div className="flex gap-4">
+          <div className="flex-1 min-w-[200px] space-y-2">
+            <Label className="flex items-center gap-2">
+              <Filter size={16} />
+              Product Type
+            </Label>
+            <Select
+              value={filterProductType}
+              onValueChange={(value) => {
+                setFilterProductType(value);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">All Types</SelectItem>
+                {productTypes
+                  .filter((pt) => pt.isActive)
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((type) => (
+                    <SelectItem key={type.id} value={type.id}>
+                      {type?.translations?.find(
+                        (t) => t.languageCode === selectedLanguage.code,
+                      )?.name ||
+                        type?.translations[0]?.name ||
+                        "Unnamed"}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex-1 min-w-[200px] space-y-2">
+            <Label className="flex items-center gap-2">
+              <Filter size={16} />
+              Category
+            </Label>
+            <Select
+              value={filterCategory}
+              onValueChange={(value) => {
+                setFilterCategory(value);
+                if (value === "any") {
+                  setFilterSubCategory("any");
+                }
+              }}
+              disabled={categories.length === 0}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">All Categories</SelectItem>
+                {categories.map((category) => (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name || "Unnamed"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex-1 min-w-[200px] space-y-2">
+            <Label className="flex items-center gap-2">
+              <Filter size={16} />
+              Subcategory
+            </Label>
+            <Select
+              value={filterSubCategory}
+              onValueChange={setFilterSubCategory}
+              disabled={
+                filterCategory === "any" ||
+                !categories.find((c) => c.id === filterCategory)?.subcategories
+                  ?.length
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All Subcategories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">All Subcategories</SelectItem>
+                {filterCategory !== "any" &&
+                  categories
+                    .find((c) => c.id === filterCategory)
+                    ?.subcategories?.map((sub) => (
+                      <SelectItem key={sub.id} value={sub.id}>
+                        {sub.name || "Unnamed"}
+                      </SelectItem>
+                    ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Row 3: Car Brand, Model, and Year Filters */}
         <div className="flex gap-4">
           <div className="flex-1 min-w-[200px] space-y-2">
             <Label className="flex items-center gap-2">
@@ -1451,7 +1638,7 @@ export default function ProductsPage() {
                 <SelectItem value="any">All Years</SelectItem>
                 {Array.from(
                   { length: 35 },
-                  (_, i) => new Date().getFullYear() - 25 + i
+                  (_, i) => new Date().getFullYear() - 25 + i,
                 ).map((year) => (
                   <SelectItem key={year} value={year.toString()}>
                     {year}
@@ -1461,19 +1648,25 @@ export default function ProductsPage() {
             </Select>
           </div>
 
-          {(filterCarBrand !== "any" ||
+          {(filterProductType !== "any" ||
+            filterCategory !== "any" ||
+            filterSubCategory !== "any" ||
+            filterCarBrand !== "any" ||
             filterCarModel !== "any" ||
             filterCarYear !== "any") && (
             <div className="flex items-end">
               <Button
                 variant="outline"
                 onClick={() => {
+                  setFilterProductType("any");
+                  setFilterCategory("any");
+                  setFilterSubCategory("any");
                   setFilterCarBrand("any");
                   setFilterCarModel("any");
                   setFilterCarYear("any");
                 }}
               >
-                Clear Filters
+                Clear All Filters
               </Button>
             </div>
           )}
@@ -1495,6 +1688,7 @@ export default function ProductsPage() {
               <h3 className="text-xl font-semibold mb-2">No products found</h3>
               <p className="text-muted-foreground mb-6 max-w-md">
                 {searchQuery ||
+                filterProductType !== "any" ||
                 filterCategory !== "any" ||
                 filterSubCategory !== "any"
                   ? "Try adjusting your search or filters to find what you're looking for."
@@ -1502,12 +1696,14 @@ export default function ProductsPage() {
               </p>
               <div className="flex gap-3">
                 {(searchQuery ||
+                  filterProductType !== "any" ||
                   filterCategory !== "any" ||
                   filterSubCategory !== "any") && (
                   <Button
                     variant="outline"
                     onClick={() => {
                       setSearchQuery("");
+                      setFilterProductType("any");
                       setFilterMake("any");
                       setFilterModel("any");
                       setFilterYear("any");
@@ -1614,7 +1810,7 @@ export default function ProductsPage() {
                                 <DropdownMenuItem
                                   onClick={() =>
                                     router.push(
-                                      `/dashboard/products/${product.id}`
+                                      `/dashboard/products/${product.id}`,
                                     )
                                   }
                                 >
@@ -1716,7 +1912,7 @@ export default function ProductsPage() {
                         {pageNum}
                       </Button>
                     );
-                  }
+                  },
                 )}
                 <Button
                   variant="outline"
@@ -1725,8 +1921,8 @@ export default function ProductsPage() {
                     setCurrentPage(
                       Math.min(
                         Math.ceil(totalProducts / rowsPerPage),
-                        currentPage + 1
-                      )
+                        currentPage + 1,
+                      ),
                     )
                   }
                   disabled={
@@ -1774,179 +1970,192 @@ export default function ProductsPage() {
               <Label htmlFor="productType">Product Type *</Label>
               <Select
                 value={formData.productType}
-                onValueChange={(
-                  value:
-                    | "car-parts"
-                    | "riding-gear"
-                    | "cleaning-and-accessories"
-                ) => {
+                onValueChange={(value: string) => {
+                  const selectedType = productTypes.find(
+                    (pt) => pt.id === value,
+                  );
+                  const requiresCars = selectedType?.code === "car_parts";
+
                   setFormData({
                     ...formData,
                     productType: value,
-                    carMake: value !== "car-parts" ? "" : formData.carMake,
-                    carModel: value !== "car-parts" ? "" : formData.carModel,
-                    carYearFrom:
-                      value !== "car-parts" ? "" : formData.carYearFrom,
-                    carYearTo: value !== "car-parts" ? "" : formData.carYearTo,
+                    carMake: !requiresCars ? "" : formData.carMake,
+                    carModel: !requiresCars ? "" : formData.carModel,
+                    carYearFrom: !requiresCars ? "" : formData.carYearFrom,
+                    carYearTo: !requiresCars ? "" : formData.carYearTo,
                   });
                   // Clear selected cars when changing to non-car-parts types
-                  if (value !== "car-parts") {
+                  if (!requiresCars) {
                     setSelectedCarCompatibility([]);
                   }
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select product type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="car-parts">Car Parts</SelectItem>
-                  <SelectItem value="riding-gear">Motorcycles</SelectItem>
-                  <SelectItem value="cleaning-and-accessories">
-                    Car Care & Accessories
-                  </SelectItem>
+                  {productTypes
+                    .filter((pt) => pt.isActive)
+                    .sort((a, b) => a.sortOrder - b.sortOrder)
+                    .map((type) => (
+                      <SelectItem key={type.id} value={type.id}>
+                        {type.translations?.find(
+                          (t) => t.languageCode === selectedLanguage?.code,
+                        )?.name || type.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {formData.productType === "car-parts"
+                {productTypes.find((pt) => pt.id === formData.productType)
+                  ?.code === "car_parts"
                   ? "This product requires vehicle make, model, and year specifications."
                   : "This product does not require vehicle specifications."}
               </p>
             </div>
 
-            {/* Car Compatibility Selection - Only for car-parts */}
-            {formData.productType === "car-parts" && !editingProduct && (
-              <div className="space-y-3 border rounded-lg p-4 bg-accent/5">
-                <div>
-                  <Label>Compatible Cars *</Label>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Add car models and specify the compatible year ranges for
-                    this product
-                  </p>
-                </div>
-
-                {/* Selected Car Compatibilities */}
-                {selectedCarCompatibility.length > 0 && (
-                  <div className="space-y-2">
-                    {selectedCarCompatibility.map((compat, index) => {
-                      const car = availableCars.find(
-                        (c) => c.id === compat.carId
-                      );
-                      return (
-                        <div
-                          key={compat.carId}
-                          className="flex items-center gap-2 p-3 bg-background border rounded-md"
-                        >
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">
-                              {car?.brand} {car?.model}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              placeholder="From"
-                              className="w-24 h-8 text-sm"
-                              value={compat.yearFrom || ""}
-                              onChange={(e) => {
-                                const newCompat = [...selectedCarCompatibility];
-                                newCompat[index] = {
-                                  ...newCompat[index],
-                                  yearFrom: e.target.value
-                                    ? parseInt(e.target.value)
-                                    : undefined,
-                                };
-                                setSelectedCarCompatibility(newCompat);
-                              }}
-                            />
-                            <span className="text-muted-foreground">-</span>
-                            <Input
-                              type="number"
-                              placeholder="To"
-                              className="w-24 h-8 text-sm"
-                              value={
-                                compat.yearTo === null
-                                  ? ""
-                                  : compat.yearTo || ""
-                              }
-                              onChange={(e) => {
-                                const newCompat = [...selectedCarCompatibility];
-                                newCompat[index] = {
-                                  ...newCompat[index],
-                                  yearTo: e.target.value
-                                    ? parseInt(e.target.value)
-                                    : null,
-                                };
-                                setSelectedCarCompatibility(newCompat);
-                              }}
-                            />
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedCarCompatibility(
-                                selectedCarCompatibility.filter(
-                                  (_, i) => i !== index
-                                )
-                              );
-                            }}
-                          >
-                            <X size={16} />
-                          </Button>
-                        </div>
-                      );
-                    })}
+            {/* Car Compatibility Selection - Only for car_parts product types */}
+            {productTypes.find((pt) => pt.id === formData.productType)?.code ===
+              "car_parts" &&
+              !editingProduct && (
+                <div className="space-y-3 border rounded-lg p-4 bg-accent/5">
+                  <div>
+                    <Label>Compatible Cars *</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Add car models and specify the compatible year ranges for
+                      this product
+                    </p>
                   </div>
-                )}
 
-                {/* Add Car Button and Dropdown */}
-                <div className="relative">
-                  <Select
-                    value=""
-                    onValueChange={(carId) => {
-                      if (
-                        !selectedCarCompatibility.some((c) => c.carId === carId)
-                      ) {
-                        setSelectedCarCompatibility([
-                          ...selectedCarCompatibility,
-                          { carId, yearFrom: undefined, yearTo: undefined },
-                        ]);
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="+ Add compatible car" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableCars.length === 0 ? (
-                        <div className="p-2 text-center text-muted-foreground text-sm">
-                          No cars available
-                        </div>
-                      ) : (
-                        availableCars
-                          .filter(
-                            (car) =>
-                              !selectedCarCompatibility.some(
-                                (c) => c.carId === car.id
-                              )
+                  {/* Selected Car Compatibilities */}
+                  {selectedCarCompatibility.length > 0 && (
+                    <div className="space-y-2">
+                      {selectedCarCompatibility.map((compat, index) => {
+                        const car = availableCars.find(
+                          (c) => c.id === compat.carId,
+                        );
+                        return (
+                          <div
+                            key={compat.carId}
+                            className="flex items-center gap-2 p-3 bg-background border rounded-md"
+                          >
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">
+                                {car?.brand} {car?.model}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                placeholder="From"
+                                className="w-24 h-8 text-sm"
+                                value={compat.yearFrom || ""}
+                                onChange={(e) => {
+                                  const newCompat = [
+                                    ...selectedCarCompatibility,
+                                  ];
+                                  newCompat[index] = {
+                                    ...newCompat[index],
+                                    yearFrom: e.target.value
+                                      ? parseInt(e.target.value)
+                                      : undefined,
+                                  };
+                                  setSelectedCarCompatibility(newCompat);
+                                }}
+                              />
+                              <span className="text-muted-foreground">-</span>
+                              <Input
+                                type="number"
+                                placeholder="To"
+                                className="w-24 h-8 text-sm"
+                                value={
+                                  compat.yearTo === null
+                                    ? ""
+                                    : compat.yearTo || ""
+                                }
+                                onChange={(e) => {
+                                  const newCompat = [
+                                    ...selectedCarCompatibility,
+                                  ];
+                                  newCompat[index] = {
+                                    ...newCompat[index],
+                                    yearTo: e.target.value
+                                      ? parseInt(e.target.value)
+                                      : null,
+                                  };
+                                  setSelectedCarCompatibility(newCompat);
+                                }}
+                              />
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedCarCompatibility(
+                                  selectedCarCompatibility.filter(
+                                    (_, i) => i !== index,
+                                  ),
+                                );
+                              }}
+                            >
+                              <X size={16} />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Add Car Button and Dropdown */}
+                  <div className="relative">
+                    <Select
+                      value=""
+                      onValueChange={(carId) => {
+                        if (
+                          !selectedCarCompatibility.some(
+                            (c) => c.carId === carId,
                           )
-                          .map((car) => (
-                            <SelectItem key={car.id} value={car.id}>
-                              {car.brand} {car.model}
-                            </SelectItem>
-                          ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
+                        ) {
+                          setSelectedCarCompatibility([
+                            ...selectedCarCompatibility,
+                            { carId, yearFrom: undefined, yearTo: undefined },
+                          ]);
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="+ Add compatible car" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableCars.length === 0 ? (
+                          <div className="p-2 text-center text-muted-foreground text-sm">
+                            No cars available
+                          </div>
+                        ) : (
+                          availableCars
+                            .filter(
+                              (car) =>
+                                !selectedCarCompatibility.some(
+                                  (c) => c.carId === car.id,
+                                ),
+                            )
+                            .map((car) => (
+                              <SelectItem key={car.id} value={car.id}>
+                                {car.brand} {car.model}
+                              </SelectItem>
+                            ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                {selectedCarCompatibility.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No cars selected. Please add at least one compatible car.
-                  </p>
-                )}
-              </div>
-            )}
+                  {selectedCarCompatibility.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No cars selected. Please add at least one compatible car.
+                    </p>
+                  )}
+                </div>
+              )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -2103,18 +2312,30 @@ export default function ProductsPage() {
                       subCategory: "",
                     })
                   }
+                  disabled={!formData.productType}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
+                    <SelectValue
+                      placeholder={
+                        !formData.productType
+                          ? "Select product type first"
+                          : "Select category"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories.map((category) => (
+                    {modalCategories.map((category) => (
                       <SelectItem key={category.id} value={category.id}>
                         {category.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {!formData.productType && (
+                  <p className="text-xs text-muted-foreground">
+                    Please select a product type first
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -2447,7 +2668,7 @@ export default function ProductsPage() {
                           <p className="text-sm text-muted-foreground">
                             {productCarCompatibilityService.formatYearRange(
                               compat.yearFrom,
-                              compat.yearTo
+                              compat.yearTo,
                             )}
                           </p>
                         </div>

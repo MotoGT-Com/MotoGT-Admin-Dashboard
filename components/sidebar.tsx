@@ -60,13 +60,21 @@ const navigationGroups: NavGroup[] = [
   {
     label: "Store Management",
     items: [
-      // { icon: <Layers size={20} />, label: "Categories", href: "/dashboard/categories" },
+      {
+        icon: <Layers size={20} />,
+        label: "Product Types",
+        href: "/dashboard/product-types",
+      },
+      {
+        icon: <Layers size={20} />,
+        label: "Categories",
+        href: "/dashboard/categories",
+      },
       {
         icon: <Tag size={20} />,
         label: "Products",
         href: "/dashboard/products",
       },
-      // { icon: <FileText size={20} />, label: "Collections", href: "/dashboard/collections" },
       { icon: <Car size={20} />, label: "Cars", href: "/dashboard/cars" },
     ],
   },
