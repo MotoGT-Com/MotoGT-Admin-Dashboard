@@ -78,6 +78,7 @@ export interface ProductListParams {
   languageId: string;
   categoryId?: string;
   subCategoryId?: string;
+  productTypeId?: string;
   search?: string;
   page?: number;
   limit?: number;
@@ -182,6 +183,7 @@ class ProductService {
       // Optional filters
       if (params.categoryId) queryParams.set('categoryId', params.categoryId);
       if (params.subCategoryId) queryParams.set('subCategoryId', params.subCategoryId);
+      if (params.productTypeId) queryParams.set('productTypeId', params.productTypeId);
       if (params.search) queryParams.set('search', params.search);
       if (params.carBrand) queryParams.set('carBrand', params.carBrand);
       if (params.carModel) queryParams.set('carModel', params.carModel);
