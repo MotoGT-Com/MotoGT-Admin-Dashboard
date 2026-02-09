@@ -41,6 +41,7 @@ import {
   XCircle,
   Plus,
 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
 import { productService, Product } from "@/lib/services/product.service";
 import {
   productCarCompatibilityService,
@@ -51,6 +52,7 @@ import { settingsService } from "@/lib/services/settings.service";
 import { uploadService } from "@/lib/services/upload.service";
 import { categoryService, Category } from "@/lib/services/category.service";
 import { toast } from "sonner";
+import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,10 +89,12 @@ export default function ProductDetailPage() {
   const [selectedStore, setSelectedStore] = useState<any | null>(null);
   const [formData, setFormData] = useState({
     name: "",
+    nameAr: "",
     itemCode: "",
     price: "",
     stockQuantity: "",
     description: "",
+    descriptionAr: "",
     categoryId: "",
     subCategoryId: "",
     color: "",
@@ -180,12 +184,12 @@ export default function ProductDetailPage() {
       setLoading(true);
       const response = await productService.getProductById(
         productId,
-        selectedLanguage.id
+        selectedLanguage.id,
       );
 
       // Extract display data
       const translation = response.translations?.find(
-        (t) => t.languageCode === selectedLanguage.code
+        (t) => t.languageCode === selectedLanguage.code,
       );
       const specs = response.specs?.[selectedLanguage.code];
 
@@ -201,16 +205,16 @@ export default function ProductDetailPage() {
       if (response.category) {
         setCategoryName(
           response?.category?.translations?.find(
-            (t) => t.languageCode === selectedLanguage.code
-          )?.name || response.category.id
+            (t) => t.languageCode === selectedLanguage.code,
+          )?.name || response.category.id,
         );
       }
 
       if (response.subCategory) {
         setSubcategoryName(
           response?.subCategory?.translations?.find(
-            (t) => t.languageCode === selectedLanguage.code
-          )?.name || response.subCategory.id
+            (t) => t.languageCode === selectedLanguage.code,
+          )?.name || response.subCategory.id,
         );
       }
 
@@ -245,12 +249,22 @@ export default function ProductDetailPage() {
 
     const specs = product.specs?.[selectedLanguage.code];
 
+    // Extract English and Arabic translations
+    const englishTranslation = product.translations?.find(
+      (t) => t.languageCode === "en",
+    );
+    const arabicTranslation = product.translations?.find(
+      (t) => t.languageCode === "ar",
+    );
+
     setFormData({
-      name: product.name || "",
+      name: englishTranslation?.name || "",
+      nameAr: arabicTranslation?.name || "",
       itemCode: product.itemCode,
       price: product.price.toString(),
       stockQuantity: product.stockQuantity.toString(),
-      description: product.description || "",
+      description: englishTranslation?.description || "",
+      descriptionAr: arabicTranslation?.description || "",
       categoryId: product.categoryId || "",
       subCategoryId: product.subCategoryId || "",
       color: specs?.color?.value || "",
@@ -262,14 +276,14 @@ export default function ProductDetailPage() {
     // Set subcategories if category is selected
     if (product.categoryId) {
       const selectedCategory = categories.find(
-        (cat) => cat.id === product.categoryId
+        (cat) => cat.id === product.categoryId,
       );
       if (selectedCategory && selectedCategory.subcategories) {
         const subsWithNames = selectedCategory.subcategories.map((sub) => ({
           ...sub,
           name: categoryService.getCategoryName(
             sub,
-            selectedLanguage?.code || "en"
+            selectedLanguage?.code || "en",
           ),
         }));
         setSubcategories(subsWithNames);
@@ -284,9 +298,8 @@ export default function ProductDetailPage() {
     if (!productId) return;
 
     try {
-      const data = await productCarCompatibilityService.listCompatibilities(
-        productId
-      );
+      const data =
+        await productCarCompatibilityService.listCompatibilities(productId);
       setCompatibilities(data);
     } catch (error: any) {
       toast.error("Error", {
@@ -350,7 +363,7 @@ export default function ProductDetailPage() {
           year_to: compatibilityForm.yearTo
             ? parseInt(compatibilityForm.yearTo)
             : null,
-        }
+        },
       );
 
       toast.success("Success", { description: "Compatibility updated" });
@@ -374,7 +387,7 @@ export default function ProductDetailPage() {
     try {
       await productCarCompatibilityService.deleteCompatibility(
         productId,
-        compatibilityId
+        compatibilityId,
       );
 
       toast.success("Success", { description: "Compatibility removed" });
@@ -392,10 +405,12 @@ export default function ProductDetailPage() {
     setIsEditing(false);
     setFormData({
       name: "",
+      nameAr: "",
       itemCode: "",
       price: "",
       stockQuantity: "",
       description: "",
+      descriptionAr: "",
       categoryId: "",
       subCategoryId: "",
       color: "",
@@ -408,17 +423,30 @@ export default function ProductDetailPage() {
   const handleSaveEdit = async () => {
     if (!product || !selectedLanguage || !selectedStore) return;
 
-    // Validation
+    // Validation for English fields
     if (!formData.name || !formData.price || !formData.stockQuantity) {
-      toast.success("Validation Error", {
+      toast.error("Validation Error", {
         description:
-          "Please fill in all required fields (Name, Price, Stock Quantity)",
+          "Please fill in all required English fields (Name, Price, Stock Quantity)",
+      });
+      return;
+    }
+
+    // Validation for Arabic fields
+    if (!formData.nameAr) {
+      toast.error("Validation Error", {
+        description: "Arabic name is required",
       });
       return;
     }
 
     try {
       setSaving(true);
+
+      // Get language IDs
+      const languages = await settingsService.getLanguages();
+      const englishLangId = getEnglishLanguageId(languages);
+      const arabicLangId = getArabicLanguageId(languages);
 
       const updatedProductData = {
         itemCode: formData.itemCode,
@@ -430,9 +458,14 @@ export default function ProductDetailPage() {
         size: formData.size || undefined,
         translations: [
           {
-            languageId: selectedLanguage.id,
+            languageId: englishLangId,
             name: formData.name,
             description: formData.description || undefined,
+          },
+          {
+            languageId: arabicLangId,
+            name: formData.nameAr,
+            description: formData.descriptionAr || undefined,
           },
         ],
         specifications:
@@ -482,14 +515,14 @@ export default function ProductDetailPage() {
   useEffect(() => {
     if (formData.categoryId && formData.categoryId !== "") {
       const selectedCategory = categories.find(
-        (cat) => cat.id === formData.categoryId
+        (cat) => cat.id === formData.categoryId,
       );
       if (selectedCategory && selectedCategory.subcategories) {
         const subsWithNames = selectedCategory.subcategories.map((sub) => ({
           ...sub,
           name: categoryService.getCategoryName(
             sub,
-            selectedLanguage?.code || "en"
+            selectedLanguage?.code || "en",
           ),
         }));
         setSubcategories(subsWithNames);
@@ -504,7 +537,7 @@ export default function ProductDetailPage() {
 
   const handleImageUpload = async (
     file: File,
-    imageField: "main_image" | "secondary_image" | "images"
+    imageField: "main_image" | "secondary_image" | "images",
   ) => {
     // Validate file
     const validation = uploadService.validateImageFile(file);
@@ -519,7 +552,7 @@ export default function ProductDetailPage() {
         file,
         "product",
         productId,
-        imageField
+        imageField,
       );
 
       toast.success("Success", { description: "Image uploaded successfully" });
@@ -562,7 +595,7 @@ export default function ProductDetailPage() {
 
   const handleDeleteImage = async (
     imageUrl: string,
-    imageType: "main" | "secondary" | "gallery"
+    imageType: "main" | "secondary" | "gallery",
   ) => {
     if (!product) return;
 
@@ -573,20 +606,21 @@ export default function ProductDetailPage() {
         imageUpdates.mainImage = null;
         // Keep images array clean - exclude main and secondary
         imageUpdates.images = product.images.filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage
+          (img) => img !== product.mainImage && img !== product.secondaryImage,
         );
       } else if (imageType === "secondary") {
         imageUpdates.secondaryImage = null;
         // Keep images array clean - exclude main and secondary
         imageUpdates.images = product.images.filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage
+          (img) => img !== product.mainImage && img !== product.secondaryImage,
         );
       } else if (imageType === "gallery") {
         // Filter out the deleted image and ensure main/secondary are excluded
         imageUpdates.images = product.images
           .filter((img) => img !== imageUrl)
           .filter(
-            (img) => img !== product.mainImage && img !== product.secondaryImage
+            (img) =>
+              img !== product.mainImage && img !== product.secondaryImage,
           );
       }
 
@@ -611,7 +645,7 @@ export default function ProductDetailPage() {
       const updatedImages = product.images
         .filter((img) => img !== imageUrl)
         .filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage
+          (img) => img !== product.mainImage && img !== product.secondaryImage,
         );
 
       const imageUpdates = {
@@ -640,7 +674,7 @@ export default function ProductDetailPage() {
       const updatedImages = product.images
         .filter((img) => img !== imageUrl)
         .filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage
+          (img) => img !== product.mainImage && img !== product.secondaryImage,
         );
 
       const imageUpdates = {
@@ -955,127 +989,179 @@ export default function ProductDetailPage() {
               {isEditing ? (
                 /* Edit Mode */
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name">Product Name *</Label>
-                      <Input
-                        id="name"
-                        value={formData.name}
-                        onChange={(e) =>
-                          setFormData({ ...formData, name: e.target.value })
-                        }
-                        placeholder="Enter product name"
-                      />
+                  {/* English Translation Section */}
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-semibold">
+                        English Translation
+                      </h3>
+                      <Separator />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="itemCode">Item Code</Label>
-                      <Input
-                        id="itemCode"
-                        value={formData.itemCode}
-                        disabled
-                        className="bg-muted"
-                      />
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="price">Price (JOD) *</Label>
-                      <Input
-                        id="price"
-                        type="number"
-                        step="0.001"
-                        value={formData.price}
-                        onChange={(e) =>
-                          setFormData({ ...formData, price: e.target.value })
-                        }
-                        placeholder="0.000"
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="name">Product Name (English) *</Label>
+                        <Input
+                          id="name"
+                          value={formData.name}
+                          onChange={(e) =>
+                            setFormData({ ...formData, name: e.target.value })
+                          }
+                          placeholder="Enter product name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="itemCode">Item Code</Label>
+                        <Input
+                          id="itemCode"
+                          value={formData.itemCode}
+                          disabled
+                          className="bg-muted"
+                        />
+                      </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="price">Price (JOD) *</Label>
+                        <Input
+                          id="price"
+                          type="number"
+                          step="0.001"
+                          value={formData.price}
+                          onChange={(e) =>
+                            setFormData({ ...formData, price: e.target.value })
+                          }
+                          placeholder="0.000"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="stockQuantity">Stock Quantity *</Label>
+                        <Input
+                          id="stockQuantity"
+                          type="number"
+                          value={formData.stockQuantity}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              stockQuantity: e.target.value,
+                            })
+                          }
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="brand">Brand</Label>
+                        <Input
+                          id="brand"
+                          value={formData.brand}
+                          onChange={(e) =>
+                            setFormData({ ...formData, brand: e.target.value })
+                          }
+                          placeholder="e.g., Akrapovic"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="size">Size</Label>
+                        <Input
+                          id="size"
+                          value={formData.size}
+                          onChange={(e) =>
+                            setFormData({ ...formData, size: e.target.value })
+                          }
+                          placeholder="e.g., Universal"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="color">Color/Design</Label>
+                        <Input
+                          id="color"
+                          value={formData.color}
+                          onChange={(e) =>
+                            setFormData({ ...formData, color: e.target.value })
+                          }
+                          placeholder="e.g., Carbon Fiber"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="material">Material</Label>
+                        <Input
+                          id="material"
+                          value={formData.material}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              material: e.target.value,
+                            })
+                          }
+                          placeholder="e.g., ABS Plastic"
+                        />
+                      </div>
+                    </div>
+
                     <div className="space-y-2">
-                      <Label htmlFor="stockQuantity">Stock Quantity *</Label>
-                      <Input
-                        id="stockQuantity"
-                        type="number"
-                        value={formData.stockQuantity}
+                      <Label htmlFor="description">Description (English)</Label>
+                      <Textarea
+                        id="description"
+                        value={formData.description}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            stockQuantity: e.target.value,
+                            description: e.target.value,
                           })
                         }
-                        placeholder="0"
+                        placeholder="Enter product description"
+                        rows={3}
                       />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="brand">Brand</Label>
-                      <Input
-                        id="brand"
-                        value={formData.brand}
-                        onChange={(e) =>
-                          setFormData({ ...formData, brand: e.target.value })
-                        }
-                        placeholder="e.g., Akrapovic"
-                      />
+                  {/* Arabic Translation Section */}
+                  <div className="space-y-4 pt-4">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-semibold">
+                        Arabic Translation
+                      </h3>
+                      <Separator />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="size">Size</Label>
-                      <Input
-                        id="size"
-                        value={formData.size}
-                        onChange={(e) =>
-                          setFormData({ ...formData, size: e.target.value })
-                        }
-                        placeholder="e.g., Universal"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="color">Color/Design</Label>
-                      <Input
-                        id="color"
-                        value={formData.color}
-                        onChange={(e) =>
-                          setFormData({ ...formData, color: e.target.value })
-                        }
-                        placeholder="e.g., Carbon Fiber"
-                      />
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="material">Material</Label>
+                      <Label htmlFor="nameAr">Product Name (Arabic) *</Label>
                       <Input
-                        id="material"
-                        value={formData.material}
+                        id="nameAr"
+                        value={formData.nameAr}
+                        onChange={(e) =>
+                          setFormData({ ...formData, nameAr: e.target.value })
+                        }
+                        placeholder="أدخل اسم المنتج"
+                        dir="rtl"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="descriptionAr">
+                        Description (Arabic)
+                      </Label>
+                      <Textarea
+                        id="descriptionAr"
+                        value={formData.descriptionAr}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            material: e.target.value,
+                            descriptionAr: e.target.value,
                           })
                         }
-                        placeholder="e.g., ABS Plastic"
+                        placeholder="أدخل وصف المنتج"
+                        rows={3}
+                        dir="rtl"
                       />
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description</Label>
-                    <Textarea
-                      id="description"
-                      value={formData.description}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          description: e.target.value,
-                        })
-                      }
-                      placeholder="Enter product description"
-                      rows={3}
-                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -1223,7 +1309,7 @@ export default function ProductDetailPage() {
                       <p className="font-medium">
                         {[
                           ...new Set(
-                            product.variants.map((v) => v.size).filter(Boolean)
+                            product.variants.map((v) => v.size).filter(Boolean),
                           ),
                         ].join(", ") || "-"}
                       </p>
@@ -1261,7 +1347,9 @@ export default function ProductDetailPage() {
                       <p className="font-medium">
                         {[
                           ...new Set(
-                            product.variants.map((v) => v.color).filter(Boolean)
+                            product.variants
+                              .map((v) => v.color)
+                              .filter(Boolean),
                           ),
                         ].join(", ") || "-"}
                       </p>
@@ -1345,7 +1433,7 @@ export default function ProductDetailPage() {
                         <p className="text-sm text-muted-foreground">
                           {productCarCompatibilityService.formatYearRange(
                             compat.yearFrom,
-                            compat.yearTo
+                            compat.yearTo,
                           )}
                         </p>
                       </div>

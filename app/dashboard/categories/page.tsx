@@ -51,6 +51,8 @@ import { settingsService } from "@/lib/services/settings.service";
 import { uploadService } from "@/lib/services/upload.service";
 import { useAuth } from "@/lib/context/auth-context";
 import { toast } from "sonner";
+import { Separator } from "@/components/ui/separator";
+import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
 
 interface CategoryWithExpanded extends Category {
   expanded?: boolean;
@@ -89,7 +91,9 @@ export default function CategoriesPage() {
   // Form state
   const [formData, setFormData] = useState({
     name: "",
+    nameAr: "",
     description: "",
+    descriptionAr: "",
     productTypeId: "",
     parentId: "",
     image: "",
@@ -145,7 +149,6 @@ export default function CategoriesPage() {
       try {
         setProductTypesLoading(true);
         const data = await productTypeService.getAll(selectedLanguage.id);
-        console.log("Product Types", data);
         setProductTypes(Array.isArray(data) ? data : []);
       } catch (error: any) {
         console.error("Failed to load product types:", error);
@@ -168,7 +171,6 @@ export default function CategoriesPage() {
         setCategoriesLoading(true);
         const data = await categoryService.listCategoriesAdmin({
           storeId: selectedStore.id,
-          languageId: selectedLanguage.id,
           productTypeId:
             filterProductTypeId === "all" ? undefined : filterProductTypeId,
           includeSubcategories: true,
@@ -204,7 +206,9 @@ export default function CategoriesPage() {
     setEditingCategory(null);
     setFormData({
       name: "",
+      nameAr: "",
       description: "",
+      descriptionAr: "",
       productTypeId: "",
       parentId: "none",
       image: "",
@@ -220,10 +224,19 @@ export default function CategoriesPage() {
   const handleOpenEditDialog = (category: Category) => {
     setEditingCategory(category);
 
-    const translation = category.translations?.[0];
+    // Extract English and Arabic translations
+    const englishTranslation = category.translations?.find(
+      (t) => t.languageCode === "en",
+    );
+    const arabicTranslation = category.translations?.find(
+      (t) => t.languageCode === "ar",
+    );
+
     setFormData({
-      name: translation?.name || "",
-      description: translation?.description || "",
+      name: englishTranslation?.name || "",
+      nameAr: arabicTranslation?.name || "",
+      description: englishTranslation?.description || "",
+      descriptionAr: arabicTranslation?.description || "",
       productTypeId: category.productTypeId || "",
       parentId: category.parentId || "none",
       image: category.categoryImage || "",
@@ -278,7 +291,12 @@ export default function CategoriesPage() {
     }
 
     if (!formData.name.trim()) {
-      toast.error("Category name is required");
+      toast.error("English category name is required");
+      return;
+    }
+
+    if (!formData.nameAr.trim()) {
+      toast.error("Arabic category name is required");
       return;
     }
 
@@ -314,6 +332,10 @@ export default function CategoriesPage() {
     try {
       setSaving(true);
 
+      // Get language IDs
+      const englishLangId = getEnglishLanguageId(languages);
+      const arabicLangId = getArabicLanguageId(languages);
+
       // Upload image if needed
       let imageUrl = formData.image;
       if (imageFile) {
@@ -332,10 +354,16 @@ export default function CategoriesPage() {
         isActive: formData.isActive,
         translations: [
           {
-            languageId: selectedLanguage.id,
+            languageId: englishLangId,
             name: formData.name,
             description: formData.description || undefined,
             slug: formData.name.toLowerCase().replace(/\s+/g, "-"),
+          },
+          {
+            languageId: arabicLangId,
+            name: formData.nameAr,
+            description: formData.descriptionAr || undefined,
+            slug: formData.nameAr.replace(/\s+/g, "-"),
           },
         ],
       };
@@ -362,7 +390,7 @@ export default function CategoriesPage() {
               isActive: true,
               translations: [
                 {
-                  languageId: selectedLanguage.id,
+                  languageId: englishLangId,
                   name: subcategory.name,
                   description: undefined,
                   slug: subcategory.name.toLowerCase().replace(/\s+/g, "-"),
@@ -418,12 +446,11 @@ export default function CategoriesPage() {
   };
 
   const getCategoryName = (category: Category): string => {
-    if (category.name) return category.name;
-    const translation = category.translations?.[0];
+    const translation = category.translations.find(
+      (t) => t.languageCode === selectedLanguage?.code,
+    );
     return translation?.name || "Unnamed Category";
   };
-
-  console.log("Categories", categories);
 
   const parentCategories = categories.filter((c) => !c.parentId);
   const totalSubcategories = parentCategories.reduce(
@@ -602,7 +629,7 @@ export default function CategoriesPage() {
                       </span>
                       {category.productType && (
                         <Badge variant="secondary">
-                          {category.productType.name}
+                          {category.productType.slug}
                         </Badge>
                       )}
                       <Badge variant="outline">
@@ -638,7 +665,7 @@ export default function CategoriesPage() {
                           >
                             <div className="w-6" />
                             <span className="text-foreground text-sm flex-1">
-                              {subcategory.name}
+                              {getCategoryName(subcategory)}
                             </span>
                             {subcategory.productCount !== undefined && (
                               <Badge variant="outline" className="text-xs">
@@ -672,31 +699,82 @@ export default function CategoriesPage() {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">
-                Category Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="name"
-                placeholder="e.g., Interior, Exterior"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-              />
+            {/* English Translation Section */}
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">English Translation</h3>
+                <Separator />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="name">
+                  Category Name (English){" "}
+                  <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="name"
+                  placeholder="e.g., Interior, Exterior"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  disabled={languages.length === 0}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Description (English)</Label>
+                <Textarea
+                  id="description"
+                  placeholder="Category description"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  rows={3}
+                  disabled={languages.length === 0}
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                placeholder="Category description"
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-                rows={3}
-              />
+            {/* Arabic Translation Section */}
+            <div className="space-y-4 pt-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">Arabic Translation</h3>
+                <Separator />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="nameAr">
+                  Category Name (Arabic){" "}
+                  <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="nameAr"
+                  placeholder="مثال: داخلي، خارجي"
+                  value={formData.nameAr}
+                  onChange={(e) =>
+                    setFormData({ ...formData, nameAr: e.target.value })
+                  }
+                  disabled={languages.length === 0}
+                  dir="rtl"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="descriptionAr">Description (Arabic)</Label>
+                <Textarea
+                  id="descriptionAr"
+                  placeholder="وصف الفئة"
+                  value={formData.descriptionAr}
+                  onChange={(e) =>
+                    setFormData({ ...formData, descriptionAr: e.target.value })
+                  }
+                  rows={3}
+                  disabled={languages.length === 0}
+                  dir="rtl"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -885,7 +963,10 @@ export default function CategoriesPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleSaveCategory} disabled={saving || uploading}>
+            <Button
+              onClick={handleSaveCategory}
+              disabled={saving || uploading || languages.length === 0}
+            >
               {uploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

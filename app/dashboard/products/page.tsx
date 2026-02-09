@@ -62,6 +62,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 import { productService, Product } from "@/lib/services/product.service";
 import {
   productCarCompatibilityService,
@@ -77,6 +78,7 @@ import {
 } from "@/lib/services/product-type.service";
 import { useAuth } from "@/lib/context/auth-context";
 import { toast } from "sonner";
+import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
 
 // Local interface to avoid import issues
 interface CarData {
@@ -548,6 +550,7 @@ export default function ProductsPage() {
   const [formData, setFormData] = useState({
     itemCode: "",
     name: "",
+    nameAr: "",
     sellingPrice: "",
     productType: "", // Product type ID from database
     carMake: "",
@@ -555,6 +558,7 @@ export default function ProductsPage() {
     carYearFrom: "",
     carYearTo: "",
     description: "",
+    descriptionAr: "",
     quantity: "",
     material: "",
     category: "",
@@ -1006,7 +1010,7 @@ export default function ProductsPage() {
       return;
     }
 
-    // Validation
+    // Validation for English fields
     if (
       !formData.itemCode ||
       !formData.name ||
@@ -1015,9 +1019,17 @@ export default function ProductsPage() {
     ) {
       toast.error("Validation Error", {
         description:
-          "Please fill in all required fields (Item Code, Name, Price" +
+          "Please fill in all required English fields (Item Code, Name, Price" +
           (!hasVariants ? ", Quantity" : "") +
           ")",
+      });
+      return;
+    }
+
+    // Validation for Arabic fields
+    if (!formData.nameAr) {
+      toast.error("Validation Error", {
+        description: "Arabic name is required",
       });
       return;
     }
@@ -1055,6 +1067,10 @@ export default function ProductsPage() {
     try {
       setLoading(true);
 
+      // Get language IDs
+      const englishLangId = getEnglishLanguageId(languages);
+      const arabicLangId = getArabicLanguageId(languages);
+
       // Prepare product data according to new API structure (without images initially)
       const productData: any = {
         itemCode: formData.itemCode,
@@ -1070,9 +1086,14 @@ export default function ProductsPage() {
         adminUserId: user?.userId,
         translations: [
           {
-            languageId: selectedLanguage.id,
+            languageId: englishLangId,
             name: formData.name,
             description: formData.description || undefined,
+          },
+          {
+            languageId: arabicLangId,
+            name: formData.nameAr,
+            description: formData.descriptionAr || undefined,
           },
         ],
         specifications:
@@ -1082,7 +1103,7 @@ export default function ProductsPage() {
                 ...(formData.material
                   ? [
                       {
-                        languageId: selectedLanguage.id,
+                        languageId: englishLangId,
                         specKey: "material",
                         specValue: formData.material,
                         specType: "text" as const,
@@ -1095,7 +1116,7 @@ export default function ProductsPage() {
                 ...(!hasVariants && formData.color
                   ? [
                       {
-                        languageId: selectedLanguage.id,
+                        languageId: englishLangId,
                         specKey: "color",
                         specValue: formData.color,
                         specType: "text" as const,
@@ -2185,29 +2206,80 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="name">Product Name *</Label>
-              <Input
-                id="name"
-                placeholder="e.g., 3 SERIES HEADLIGHT TRIM"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-              />
+            {/* English Translation Section */}
+            <div className="space-y-4 pt-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">English Translation</h3>
+                <Separator />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="name">Product Name (English) *</Label>
+                <Input
+                  id="name"
+                  placeholder="e.g., 3 SERIES HEADLIGHT TRIM"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  disabled={languages.length === 0}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">
+                  Description & Features (English)
+                </Label>
+                <Textarea
+                  id="description"
+                  placeholder="Enter product description and features..."
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  rows={3}
+                  disabled={languages.length === 0}
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="description">Description & Features</Label>
-              <Textarea
-                id="description"
-                placeholder="Enter product description and features..."
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-                rows={3}
-              />
+            {/* Arabic Translation Section */}
+            <div className="space-y-4 pt-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">Arabic Translation</h3>
+                <Separator />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="nameAr">Product Name (Arabic) *</Label>
+                <Input
+                  id="nameAr"
+                  placeholder="مثال: تشذيب المصباح الأمامي للفئة 3"
+                  value={formData.nameAr}
+                  onChange={(e) =>
+                    setFormData({ ...formData, nameAr: e.target.value })
+                  }
+                  disabled={languages.length === 0}
+                  dir="rtl"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="descriptionAr">
+                  Description & Features (Arabic)
+                </Label>
+                <Textarea
+                  id="descriptionAr"
+                  placeholder="أدخل وصف المنتج والميزات..."
+                  value={formData.descriptionAr}
+                  onChange={(e) =>
+                    setFormData({ ...formData, descriptionAr: e.target.value })
+                  }
+                  rows={3}
+                  disabled={languages.length === 0}
+                  dir="rtl"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
@@ -2710,7 +2782,10 @@ export default function ProductsPage() {
             <Button variant="outline" onClick={handleCloseDialog}>
               Cancel
             </Button>
-            <Button onClick={handleSaveProduct}>
+            <Button
+              onClick={handleSaveProduct}
+              disabled={languages.length === 0}
+            >
               {editingProduct ? "Update Product" : "Add Product"}
             </Button>
           </DialogFooter>
