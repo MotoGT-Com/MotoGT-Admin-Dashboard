@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,6 +44,8 @@ import { categoryService } from "@/lib/services/category.service";
 import { settingsService } from "@/lib/services/settings.service";
 import { useAuth } from "@/lib/context/auth-context";
 import { toast } from "sonner";
+import { Separator } from "@/components/ui/separator";
+import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
 
 export default function ProductTypesPage() {
   const { user } = useAuth();
@@ -75,6 +78,9 @@ export default function ProductTypesPage() {
     code: "",
     slug: "",
     name: "",
+    nameAr: "",
+    description: "",
+    descriptionAr: "",
     sortOrder: 1,
     isActive: true,
   });
@@ -116,11 +122,9 @@ export default function ProductTypesPage() {
   // Load product types
   useEffect(() => {
     const loadProductTypes = async () => {
-      if (!selectedLanguage) return;
-
       try {
         setLoading(true);
-        const data = await productTypeService.getAll(selectedLanguage.id);
+        const data = await productTypeService.getAll();
         setProductTypes(Array.isArray(data) ? data : []);
       } catch (error: any) {
         console.error("Failed to load product types:", error);
@@ -132,7 +136,7 @@ export default function ProductTypesPage() {
     };
 
     loadProductTypes();
-  }, [selectedLanguage]);
+  }, []);
 
   // Load category counts
   useEffect(() => {
@@ -145,9 +149,6 @@ export default function ProductTypesPage() {
           storeId: selectedStore.id,
           languageId: selectedLanguage.id,
         });
-
-        console.log("Categories", categories);
-
         const counts: Record<string, number> = {};
         productTypes.forEach((pt) => {
           counts[pt.id] = categories.filter(
@@ -170,6 +171,9 @@ export default function ProductTypesPage() {
       code: "",
       slug: "",
       name: "",
+      nameAr: "",
+      description: "",
+      descriptionAr: "",
       sortOrder: productTypes.length + 1,
       isActive: true,
     });
@@ -187,10 +191,21 @@ export default function ProductTypesPage() {
       );
       setEditingProductType(fullDetails);
 
+      // Extract English and Arabic translations
+      const englishTranslation = fullDetails.translations?.find(
+        (t) => t.languageCode === "en",
+      );
+      const arabicTranslation = fullDetails.translations?.find(
+        (t) => t.languageCode === "ar",
+      );
+
       setFormData({
         code: fullDetails.code,
         slug: fullDetails.slug,
-        name: fullDetails.name,
+        name: englishTranslation?.name || "",
+        nameAr: arabicTranslation?.name || "",
+        description: englishTranslation?.description || "",
+        descriptionAr: arabicTranslation?.description || "",
         sortOrder: fullDetails.sortOrder,
         isActive: fullDetails.isActive,
       });
@@ -208,7 +223,12 @@ export default function ProductTypesPage() {
     }
 
     if (!formData.name.trim()) {
-      toast.error("Product type name is required");
+      toast.error("English product type name is required");
+      return;
+    }
+
+    if (!formData.nameAr.trim()) {
+      toast.error("Arabic product type name is required");
       return;
     }
 
@@ -225,6 +245,10 @@ export default function ProductTypesPage() {
     try {
       setSaving(true);
 
+      // Get language IDs
+      const englishLangId = getEnglishLanguageId(languages);
+      const arabicLangId = getArabicLanguageId(languages);
+
       if (editingProductType) {
         // Update existing
         await productTypeService.update(editingProductType.id, {
@@ -232,8 +256,14 @@ export default function ProductTypesPage() {
           isActive: formData.isActive,
           translations: [
             {
-              languageId: selectedLanguage.id,
+              languageId: englishLangId,
               name: formData.name,
+              description: formData.description || undefined,
+            },
+            {
+              languageId: arabicLangId,
+              name: formData.nameAr,
+              description: formData.descriptionAr || undefined,
             },
           ],
         });
@@ -247,8 +277,14 @@ export default function ProductTypesPage() {
           isActive: formData.isActive,
           translations: [
             {
-              languageId: selectedLanguage.id,
+              languageId: englishLangId,
               name: formData.name,
+              description: formData.description || undefined,
+            },
+            {
+              languageId: arabicLangId,
+              name: formData.nameAr,
+              description: formData.descriptionAr || undefined,
             },
           ],
         });
@@ -257,7 +293,7 @@ export default function ProductTypesPage() {
 
       setDialogOpen(false);
       // Reload product types
-      const data = await productTypeService.getAll(selectedLanguage.id);
+      const data = await productTypeService.getAll();
       setProductTypes(data);
     } catch (error: any) {
       console.error("Save product type error:", error);
@@ -303,7 +339,7 @@ export default function ProductTypesPage() {
       setDeleteConfirm(null);
 
       // Reload product types
-      const data = await productTypeService.getAll(selectedLanguage.id);
+      const data = await productTypeService.getAll();
       setProductTypes(data);
     } catch (error: any) {
       console.error("Delete product type error:", error);
@@ -525,18 +561,80 @@ export default function ProductTypesPage() {
               </>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="name">
-                Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="name"
-                placeholder="e.g., Electric Vehicles"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-              />
+            {/* English Translation Section */}
+            <div className="space-y-4 pt-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">English Translation</h3>
+                <Separator />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="name">
+                  Name (English) <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="name"
+                  placeholder="e.g., Electric Vehicles"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  disabled={languages.length === 0}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Description (English)</Label>
+                <Textarea
+                  id="description"
+                  placeholder="Enter product type description"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  rows={3}
+                  disabled={languages.length === 0}
+                />
+              </div>
+            </div>
+
+            {/* Arabic Translation Section */}
+            <div className="space-y-4 pt-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">Arabic Translation</h3>
+                <Separator />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="nameAr">
+                  Name (Arabic) <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="nameAr"
+                  placeholder="مثال: المركبات الكهربائية"
+                  value={formData.nameAr}
+                  onChange={(e) =>
+                    setFormData({ ...formData, nameAr: e.target.value })
+                  }
+                  disabled={languages.length === 0}
+                  dir="rtl"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="descriptionAr">Description (Arabic)</Label>
+                <Textarea
+                  id="descriptionAr"
+                  placeholder="أدخل وصف نوع المنتج"
+                  value={formData.descriptionAr}
+                  onChange={(e) =>
+                    setFormData({ ...formData, descriptionAr: e.target.value })
+                  }
+                  rows={3}
+                  disabled={languages.length === 0}
+                  dir="rtl"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -582,7 +680,10 @@ export default function ProductTypesPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleSaveProductType} disabled={saving}>
+            <Button
+              onClick={handleSaveProductType}
+              disabled={saving || languages.length === 0}
+            >
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

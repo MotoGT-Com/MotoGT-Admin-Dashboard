@@ -45,7 +45,6 @@ class ProductTypeService {
     try {
       const params = languageId ? { languageId } : {};
       const response = await apiClient.get<any>('/admin/product-types', { params });
-      console.log("Product Types",response )
       return response.data.data.productTypes;
     } catch (error: any) {
       console.error('Get product types error:', error);
@@ -61,7 +60,6 @@ class ProductTypeService {
     try {
       const params = languageId ? { languageId } : {};
       const response = await apiClient.get<any>(`/product-types/${id}`, { params });
-      console.log("Product Type", response)
       return response.data.data;
     } catch (error: any) {
       console.error('Get product type error:', error);

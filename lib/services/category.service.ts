@@ -33,7 +33,7 @@ export interface Category {
 
 export interface CategoryListParams {
   storeId: string;
-  languageId: string;
+  languageId?: string;
   parentId?: string;
   productTypeId?: string;
   isActive?: boolean;
@@ -86,7 +86,7 @@ class CategoryService {
       
       // Required params
       queryParams.set('storeId', params.storeId);
-      queryParams.set('languageId', params.languageId);
+      if (params.languageId) queryParams.set('languageId', params.languageId);
       
       // Optional params
       if (params.parentId) queryParams.set('parentId', params.parentId);
@@ -108,9 +108,9 @@ class CategoryService {
    * Get category by ID
    * GET /api/categories/public/{categoryId}
    */
-  async getCategoryById(categoryId: string, languageId: string): Promise<Category> {
+  async getCategoryById(categoryId: string, languageId?: string): Promise<Category> {
     try {
-      const response = await apiClient.get<any>(`/categories/public/${categoryId}?languageId=${languageId}`);
+      const response = await apiClient.get<any>(`/categories/public/${categoryId}${languageId ? `?languageId=${languageId}` : ''}`);
       return response.data.data;
     } catch (error: any) {
       console.error('Get category error:', error);
@@ -164,7 +164,7 @@ class CategoryService {
       
       // Required params
       queryParams.set('storeId', params.storeId);
-      queryParams.set('languageId', params.languageId);
+      if (params.languageId) queryParams.set('languageId', params.languageId);
       
       // Optional params
       if (params.parentId) queryParams.set('parentId', params.parentId);
@@ -186,9 +186,9 @@ class CategoryService {
    * Get category by ID (Admin)
    * GET /api/admin/categories/:id
    */
-  async getCategoryByIdAdmin(categoryId: string, languageId: string): Promise<Category> {
+  async getCategoryByIdAdmin(categoryId: string, languageId?: string): Promise<Category> {
     try {
-      const response = await apiClient.get<any>(`/admin/categories/${categoryId}?languageId=${languageId}`);
+      const response = await apiClient.get<any>(`/admin/categories/${categoryId}${languageId ? `?languageId=${languageId}` : ''}`);
       return response.data.data;
     } catch (error: any) {
       console.error('Get category admin error:', error);
