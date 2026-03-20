@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { orderService, Order } from "@/lib/services/order.service";
 import { userService, User } from "@/lib/services/user.service";
 import { toast } from "sonner";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ShipOrderModal,
   DeliverOrderModal,
@@ -40,11 +40,15 @@ import {
 export default function OrderDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const orderId = params.id as string;
+  const isGuest = searchParams.get("guest") === "true";
 
   const [order, setOrder] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [guestEmail, setGuestEmail] = useState<string | null>(null);
+  const [guestPhone, setGuestPhone] = useState<string | null>(null);
 
   // Modal states
   const [shipModalOpen, setShipModalOpen] = useState(false);
@@ -52,17 +56,26 @@ export default function OrderDetailsPage() {
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
 
+  const loadOrder = async () => {
+    const orderData = isGuest
+      ? await orderService.getGuestOrderById(orderId)
+      : await orderService.getOrderById(orderId);
+
+    setOrder(orderData);
+
+    if (orderData.order.guestEmail) {
+      setGuestEmail(orderData.order.guestEmail);
+      setGuestPhone(orderData.order.guestPhone || null);
+    } else if (orderData.order.customer) {
+      setUser(orderData.order.customer);
+    }
+  };
+
   useEffect(() => {
     const fetchOrderDetails = async () => {
       try {
         setIsLoading(true);
-        const orderData = await orderService.getOrderById(orderId);
-        setOrder(orderData);
-
-        // Fetch user details if userId exists
-        if (orderData.order.customer) {
-          setUser(orderData.order.customer);
-        }
+        await loadOrder();
       } catch (error: any) {
         toast.error(error.message || "Failed to load order details");
       } finally {
@@ -73,15 +86,11 @@ export default function OrderDetailsPage() {
     if (orderId) {
       fetchOrderDetails();
     }
-  }, [orderId]);
+  }, [orderId, isGuest]);
 
   const refreshOrderData = async () => {
     try {
-      const orderData = await orderService.getOrderById(orderId);
-      setOrder(orderData);
-      if (orderData.order.customer) {
-        setUser(orderData.order.customer);
-      }
+      await loadOrder();
     } catch (error: any) {
       toast.error(error.message || "Failed to refresh order");
     }
@@ -279,7 +288,11 @@ export default function OrderDetailsPage() {
                       Payment Method
                     </p>
                     <p className="text-sm font-medium">
-                      {getPaymentMethodLabel(order.order.paymentMethod?.type)}
+                      {getPaymentMethodLabel(
+                        typeof order.order.paymentMethod === "string"
+                          ? order.order.paymentMethod
+                          : order.order.paymentMethod?.type
+                      )}
                     </p>
                   </div>
                 </div>
@@ -398,30 +411,28 @@ export default function OrderDetailsPage() {
           </Card>
 
           {/* Shipping Information */}
-          {/* TODO Fix From Backend */}
-          {/* <Card>
-            <CardHeader>
-              <CardTitle>Shipping Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Shipping Address</p>
-                <p className="font-medium">{order.shippingAddress?.address || 'No shipping address provided'}</p>
-              </div>
-              {order.shippingAddress && (
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
-                  <div>
-                    <p className="text-sm text-muted-foreground">City</p>
-                    <p className="font-medium">{order.shippingAddress.city || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Postal Code</p>
-                    <p className="font-medium">{order.shippingAddress.postalCode || 'N/A'}</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card> */}
+          {order.order.shippingAddress && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Shipping Address</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {order.order.shippingAddress.title && (
+                  <p className="font-medium">{order.order.shippingAddress.title}</p>
+                )}
+                <p>{order.order.shippingAddress.address_line_1}</p>
+                {order.order.shippingAddress.address_line_2 && (
+                  <p>{order.order.shippingAddress.address_line_2}</p>
+                )}
+                <p>
+                  {[order.order.shippingAddress.city, order.order.shippingAddress.postal_code]
+                    .filter(Boolean)
+                    .join(", ")}
+                </p>
+                <p>{order.order.shippingAddress.country}</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -432,34 +443,52 @@ export default function OrderDetailsPage() {
               <CardTitle className="text-lg">Customer Info</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">
-                  Customer ID
-                </p>
-                <p className="font-mono text-sm">{user?.id}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Name</p>
-                <p className="font-medium">
-                  {user
-                    ? `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-                      "N/A"
-                    : "Loading..."}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Email</p>
-                <p className="font-medium text-sm break-all">
-                  {user?.email || "N/A"}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Phone</p>
-                <p className="font-medium">{user?.phone || "N/A"}</p>
-              </div>
-              <Button variant="outline" className="w-full mt-2" asChild>
-                <Link href={`/dashboard/users/${user?.id}`}>View customer</Link>
-              </Button>
+              {guestEmail ? (
+                <>
+                  <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
+                    Guest
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Email</p>
+                    <p className="font-medium text-sm break-all">{guestEmail}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Phone</p>
+                    <p className="font-medium">{guestPhone || "N/A"}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">
+                      Customer ID
+                    </p>
+                    <p className="font-mono text-sm">{user?.id}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Name</p>
+                    <p className="font-medium">
+                      {user
+                        ? `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+                          "N/A"
+                        : "Loading..."}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Email</p>
+                    <p className="font-medium text-sm break-all">
+                      {user?.email || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Phone</p>
+                    <p className="font-medium">{user?.phone || "N/A"}</p>
+                  </div>
+                  <Button variant="outline" className="w-full mt-2" asChild>
+                    <Link href={`/dashboard/users/${user?.id}`}>View customer</Link>
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
 
