@@ -89,6 +89,65 @@ export interface RefundOrderRequest {
   refundDescription: string;
 }
 
+export interface GuestOrderItem {
+  id: string;
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  currencyCode: string;
+  productSnapshot: {
+    images: string[];
+    mainImage: string;
+    productCode: string;
+    currentPrice: number;
+    translations: {
+      en: {
+        name: string;
+        tags?: string | null;
+        metaTitle?: string | null;
+        description?: string | null;
+        metaDescription?: string | null;
+        shortDescription?: string | null;
+      };
+    };
+    stockQuantity: number;
+    snapshotCreatedAt: string;
+  };
+}
+
+export interface GuestOrder {
+  id: string;
+  orderNumber: string;
+  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  storeId: string;
+  guestEmail: string;
+  guestPhone: string;
+  totalAmount: number;
+  currencyCode: string;
+  paymentMethod: string;
+  itemCount: number;
+  items: GuestOrderItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GuestOrdersListParams {
+  storeId: string;
+  page?: number;
+  limit?: number;
+  status?: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  email?: string;
+}
+
+export interface GuestOrdersListResponse {
+  items: GuestOrder[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
 class OrderService {
   /**
    * Get list of orders (admin)
@@ -171,6 +230,34 @@ class OrderService {
     } catch (error: any) {
       console.error('Cancel order error:', error);
       throw new Error(error.response?.data?.error?.message || 'Failed to cancel order');
+    }
+  }
+
+  /**
+   * Get guest order details by ID (admin)
+   * GET /admin/orders/guest/{orderId}
+   */
+  async getGuestOrderById(orderId: string): Promise<any> {
+    try {
+      const response = await apiClient.get(`/admin/orders/guest/${orderId}`);
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Get guest order error:', error);
+      throw new Error(error.response?.data?.error?.message || 'Failed to fetch guest order details');
+    }
+  }
+
+  /**
+   * Get list of guest orders (admin)
+   * GET /admin/orders/guest
+   */
+  async getGuestOrders(params: GuestOrdersListParams): Promise<GuestOrdersListResponse> {
+    try {
+      const response = await apiClient.get<GuestOrdersListResponse>('/admin/orders/guest', params);
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Get guest orders error:', error);
+      throw new Error(error.response?.data?.error?.message || 'Failed to fetch guest orders');
     }
   }
 
