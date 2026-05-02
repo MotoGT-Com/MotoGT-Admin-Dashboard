@@ -34,7 +34,8 @@ class ApiClient {
         'Content-Type': 'application/json',
       },
       timeout: 30000,
-      withCredentials: true,
+      // false: `Allow-Origin: *` is incompatible with credentialed XHR; tokens live in localStorage.
+      withCredentials: false,
     });
 
     this.setupInterceptors();

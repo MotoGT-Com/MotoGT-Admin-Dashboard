@@ -9,6 +9,7 @@ import {
   ShoppingCart,
   Package,
   Layers,
+  FolderTree,
   Tag,
   Users,
   Car,
@@ -66,7 +67,7 @@ const navigationGroups: NavGroup[] = [
         href: "/dashboard/product-types",
       },
       {
-        icon: <Layers size={20} />,
+        icon: <FolderTree size={20} />,
         label: "Categories",
         href: "/dashboard/categories",
       },
