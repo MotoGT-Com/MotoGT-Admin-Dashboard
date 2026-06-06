@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -97,6 +98,8 @@ interface ProductImage {
   isPrimary: boolean;
   isSecondary: boolean;
 }
+
+const COMING_SOON_STOCK_QUANTITY = 1000000;
 
 // Helper functions to extract display data
 const getProductName = (
@@ -215,6 +218,8 @@ export default function ProductsPage() {
   const [uploadedImages, setUploadedImages] = useState<ProductImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isComingSoon, setIsComingSoon] = useState(false);
 
   // Variants state
   const [hasVariants, setHasVariants] = useState(false);
@@ -639,6 +644,10 @@ export default function ProductsPage() {
   const handleOpenDialog = async (product?: Product) => {
     if (product) {
       setEditingProduct(product);
+      setIsComingSoon(
+        product.stockQuantity === COMING_SOON_STOCK_QUANTITY &&
+          (!product.variants || product.variants.length === 0),
+      );
       setFormData({
         itemCode: product.itemCode,
         name: product.name || "",
@@ -726,6 +735,7 @@ export default function ProductsPage() {
       }
     } else {
       setEditingProduct(null);
+      setIsComingSoon(false);
       setFormData({
         itemCode: "",
         name: "",
@@ -768,6 +778,7 @@ export default function ProductsPage() {
     setIsDialogOpen(false);
     setEditingProduct(null);
     setSelectedCarCompatibility([]);
+    setIsComingSoon(false);
     setHasVariants(false);
     setVariants([]);
     setCompatibilities([]);
@@ -2293,11 +2304,40 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, quantity: e.target.value })
                   }
-                  disabled={hasVariants}
+                  disabled={hasVariants || isComingSoon}
                 />
+                {!hasVariants && (
+                  <div className="flex items-center space-x-2 pt-1">
+                    <Checkbox
+                      id="coming-soon"
+                      checked={isComingSoon}
+                      onCheckedChange={(checked) => {
+                        const isChecked = checked === true;
+                        setIsComingSoon(isChecked);
+                        setFormData((prev) => ({
+                          ...prev,
+                          quantity: isChecked
+                            ? String(COMING_SOON_STOCK_QUANTITY)
+                            : "",
+                        }));
+                      }}
+                    />
+                    <Label
+                      htmlFor="coming-soon"
+                      className="text-sm font-normal cursor-pointer"
+                    >
+                      Coming Soon
+                    </Label>
+                  </div>
+                )}
                 {hasVariants && (
                   <p className="text-xs text-muted-foreground">
                     Stock managed per variant
+                  </p>
+                )}
+                {isComingSoon && !hasVariants && (
+                  <p className="text-xs text-muted-foreground">
+                    Quantity set automatically for coming soon products
                   </p>
                 )}
               </div>
@@ -2457,7 +2497,10 @@ export default function ProductsPage() {
                     checked={hasVariants}
                     onCheckedChange={(checked) => {
                       setHasVariants(checked);
-                      if (!checked) {
+                      if (checked) {
+                        setIsComingSoon(false);
+                        setFormData((prev) => ({ ...prev, quantity: "" }));
+                      } else {
                         setVariants([]);
                       }
                     }}

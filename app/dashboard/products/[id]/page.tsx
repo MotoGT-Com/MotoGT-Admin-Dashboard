@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -72,6 +73,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+const COMING_SOON_STOCK_QUANTITY = 1000000;
+
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -83,6 +86,7 @@ export default function ProductDetailPage() {
   const [selectedLanguage, setSelectedLanguage] = useState<any | null>(null);
   const [uploadingImage, setUploadingImage] = useState<string | null>(null); // 'main', 'secondary', or 'gallery'
   const [isEditing, setIsEditing] = useState(false);
+  const [isComingSoon, setIsComingSoon] = useState(false);
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Category[]>([]);
@@ -272,6 +276,10 @@ export default function ProductDetailPage() {
       brand: specs?.brand?.value || "",
       size: specs?.size?.value || "",
     });
+    setIsComingSoon(
+      product.stockQuantity === COMING_SOON_STOCK_QUANTITY &&
+        (!product.variants || product.variants.length === 0),
+    );
 
     // Set subcategories if category is selected
     if (product.categoryId) {
@@ -403,6 +411,7 @@ export default function ProductDetailPage() {
 
   const handleCancelEdit = () => {
     setIsEditing(false);
+    setIsComingSoon(false);
     setFormData({
       name: "",
       nameAr: "",
@@ -696,6 +705,12 @@ export default function ProductDetailPage() {
   };
 
   const getStockStatus = (quantity: number) => {
+    if (quantity === COMING_SOON_STOCK_QUANTITY) {
+      return {
+        label: "Coming Soon",
+        className: "bg-blue-900/30 text-blue-300",
+      };
+    }
     if (quantity === 0)
       return { label: "Out of Stock", className: "bg-red-900/30 text-red-300" };
     if (quantity < 10)
@@ -1048,7 +1063,46 @@ export default function ProductDetailPage() {
                             })
                           }
                           placeholder="0"
+                          disabled={
+                            isComingSoon ||
+                            Boolean(product.variants && product.variants.length > 0)
+                          }
                         />
+                        {(!product.variants || product.variants.length === 0) && (
+                          <div className="flex items-center space-x-2 pt-1">
+                            <Checkbox
+                              id="coming-soon"
+                              checked={isComingSoon}
+                              onCheckedChange={(checked) => {
+                                const isChecked = checked === true;
+                                setIsComingSoon(isChecked);
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  stockQuantity: isChecked
+                                    ? String(COMING_SOON_STOCK_QUANTITY)
+                                    : "",
+                                }));
+                              }}
+                            />
+                            <Label
+                              htmlFor="coming-soon"
+                              className="text-sm font-normal cursor-pointer"
+                            >
+                              Coming Soon
+                            </Label>
+                          </div>
+                        )}
+                        {product.variants && product.variants.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Stock managed per variant
+                          </p>
+                        )}
+                        {isComingSoon &&
+                          (!product.variants || product.variants.length === 0) && (
+                            <p className="text-xs text-muted-foreground">
+                              Quantity set automatically for coming soon products
+                            </p>
+                          )}
                       </div>
                     </div>
 
@@ -1251,7 +1305,9 @@ export default function ProductDetailPage() {
                         <p className="text-sm text-muted-foreground">Stock</p>
                         <div className="flex items-center gap-2">
                           <p className="text-2xl font-bold">
-                            {product.stockQuantity}
+                            {product.stockQuantity === COMING_SOON_STOCK_QUANTITY
+                              ? "Coming Soon"
+                              : product.stockQuantity}
                           </p>
                           <Badge className={stockStatus.className}>
                             {stockStatus.label}
