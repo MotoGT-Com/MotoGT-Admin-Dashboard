@@ -48,7 +48,7 @@ import { Separator } from "@/components/ui/separator";
 import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
 
 export default function ProductTypesPage() {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
   // State
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
@@ -88,13 +88,13 @@ export default function ProductTypesPage() {
 
   // Load languages and stores
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     const loadSettings = async () => {
       try {
         setLanguagesLoading(true);
-        const [languagesData, storesData] = await Promise.all([
-          settingsService.getLanguages(),
-          settingsService.getStores(),
-        ]);
+        const storesData = await settingsService.getStores();
+        const languagesData = await settingsService.getLanguages();
 
         setLanguages(languagesData);
         setStores(storesData);
@@ -117,10 +117,12 @@ export default function ProductTypesPage() {
     };
 
     loadSettings();
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   // Load product types
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     const loadProductTypes = async () => {
       try {
         setLoading(true);
@@ -128,7 +130,7 @@ export default function ProductTypesPage() {
         setProductTypes(Array.isArray(data) ? data : []);
       } catch (error: any) {
         console.error("Failed to load product types:", error);
-        toast.error("Failed to load product types");
+        toast.error(error.message || "Failed to load product types");
         setProductTypes([]);
       } finally {
         setLoading(false);
@@ -136,7 +138,7 @@ export default function ProductTypesPage() {
     };
 
     loadProductTypes();
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   // Load category counts
   useEffect(() => {
@@ -350,7 +352,7 @@ export default function ProductTypesPage() {
     }
   };
 
-  if (languagesLoading) {
+  if (authLoading || languagesLoading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-10 w-64" />

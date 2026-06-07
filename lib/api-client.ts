@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { config } from './config';
+import { getApiErrorMessage, isNetworkError } from './api-errors';
 
 // Types for API responses
 export interface ApiResponse<T = any> {
@@ -99,9 +100,16 @@ class ApiClient {
           }
         }
 
-        return Promise.reject(error);
+        return Promise.reject(this.enrichNetworkError(error));
       }
     );
+  }
+
+  private enrichNetworkError(error: AxiosError): AxiosError {
+    if (isNetworkError(error)) {
+      error.message = getApiErrorMessage(error, error.message);
+    }
+    return error;
   }
 
   // Token management methods

@@ -1,4 +1,5 @@
 import { apiClient } from '../api-client';
+import { getApiErrorMessage } from '../api-errors';
 
 export interface ProductType {
   id: string;
@@ -43,12 +44,12 @@ class ProductTypeService {
    */
   async getAll(languageId?: string): Promise<ProductType[]> {
     try {
-      const params = languageId ? { languageId } : {};
-      const response = await apiClient.get<any>('/admin/product-types', { params });
+      const params = languageId ? { languageId } : undefined;
+      const response = await apiClient.get<any>('/admin/product-types', params);
       return response.data.data.productTypes;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Get product types error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch product types');
+      throw new Error(getApiErrorMessage(error, 'Failed to fetch product types'));
     }
   }
 
@@ -58,12 +59,12 @@ class ProductTypeService {
    */
   async getById(id: string, languageId?: string): Promise<ProductType> {
     try {
-      const params = languageId ? { languageId } : {};
-      const response = await apiClient.get<any>(`/product-types/${id}`, { params });
+      const params = languageId ? { languageId } : undefined;
+      const response = await apiClient.get<any>(`/product-types/${id}`, params);
       return response.data.data;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Get product type error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch product type');
+      throw new Error(getApiErrorMessage(error, 'Failed to fetch product type'));
     }
   }
 
@@ -114,12 +115,12 @@ class ProductTypeService {
    */
   async getPublic(languageId?: string): Promise<ProductType[]> {
     try {
-      const params = languageId ? { languageId } : {};
-      const response = await apiClient.get<any>('/product-types/public', { params });
+      const params = languageId ? { languageId } : undefined;
+      const response = await apiClient.get<any>('/product-types/public', params);
       return response.data.data;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Get public product types error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch public product types');
+      throw new Error(getApiErrorMessage(error, 'Failed to fetch public product types'));
     }
   }
 }

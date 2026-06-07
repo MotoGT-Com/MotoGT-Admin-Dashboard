@@ -165,13 +165,19 @@ pnpm install
 
 ### Environment Variables
 
-Create a `.env` file in the root directory:
+Copy the example file and adjust if needed:
+
+```bash
+cp .env.example .env
+```
+
+Required variable:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=https://api.motogt.com/api
 ```
 
-> **Note**: Environment variables prefixed with `NEXT_PUBLIC_` are exposed to the browser.
+> **Note**: Environment variables prefixed with `NEXT_PUBLIC_` are exposed to the browser. Restart the dev server after changing `.env`.
 
 ### Run Locally
 
@@ -181,7 +187,11 @@ NEXT_PUBLIC_API_BASE_URL=https://api.motogt.com/api
 pnpm dev
 ```
 
-The application will be available at `http://localhost:3000`
+The application will be available at **`http://localhost:3000`**.
+
+> **Important**: Always use `http://localhost:3000` during local development. Do **not** use the Network URL (e.g. `http://172.20.x.x:3000`) shown in the terminal — the production API CORS policy only allows requests from `http://localhost:3000`, and using the Network URL will cause Axios "Network Error" on all dashboard pages.
+
+If you run a local backend instead, set `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api` and ensure the backend is running before starting the dashboard.
 
 **Production build** (local):
 

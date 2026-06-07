@@ -1,4 +1,5 @@
 import { apiClient } from '../api-client';
+import { getApiErrorMessage } from '../api-errors';
 
 export interface SupportedLanguage {
   languageId: string;
@@ -28,6 +29,7 @@ export interface StoreListParams {
   isActive?: boolean;
   country?: string;
   currencyCode?: string;
+  silent?: boolean;
 }
 
 export interface StoreListResponse {
@@ -58,23 +60,27 @@ class StoreService {
    * GET /api/stores
    */
   async listStores(params: StoreListParams = {}): Promise<Store[]> {
+    const { silent, ...filters } = params;
+
     try {
       const queryParams = new URLSearchParams();
       
       // Add pagination
-      queryParams.set('page', String(params.page || 1));
-      queryParams.set('limit', String(params.limit || 100));
+      queryParams.set('page', String(filters.page || 1));
+      queryParams.set('limit', String(filters.limit || 100));
       
       // Add optional filters
-      if (params.isActive !== undefined) queryParams.set('isActive', String(params.isActive));
-      if (params.country) queryParams.set('country', params.country);
-      if (params.currencyCode) queryParams.set('currencyCode', params.currencyCode);
+      if (filters.isActive !== undefined) queryParams.set('isActive', String(filters.isActive));
+      if (filters.country) queryParams.set('country', filters.country);
+      if (filters.currencyCode) queryParams.set('currencyCode', filters.currencyCode);
       
       const response = await apiClient.get<Store[]>(`/stores?${queryParams.toString()}`);
       return response.data.data;
-    } catch (error: any) {
-      console.error('List stores error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch stores');
+    } catch (error: unknown) {
+      if (!silent) {
+        console.error('List stores error:', error);
+      }
+      throw new Error(getApiErrorMessage(error, 'Failed to fetch stores'));
     }
   }
 
