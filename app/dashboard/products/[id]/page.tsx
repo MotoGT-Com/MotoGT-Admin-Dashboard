@@ -48,6 +48,8 @@ import {
   Product,
   buildProductImageRemovalPayload,
   wasProductImageRemoved,
+  buildSetPrimaryImagePayload,
+  buildSetSecondaryImagePayload,
 } from "@/lib/services/product.service";
 import {
   productCarCompatibilityService,
@@ -632,19 +634,7 @@ export default function ProductDetailPage() {
     if (!product) return;
 
     try {
-      // Remove the selected image from gallery and ensure main/secondary images are excluded
-      const updatedImages = product.images
-        .filter((img) => img !== imageUrl)
-        .filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage,
-        );
-
-      const imageUpdates = {
-        mainImage: imageUrl,
-        main_image: imageUrl,
-        images: updatedImages,
-      };
-
+      const imageUpdates = buildSetPrimaryImagePayload(product, imageUrl);
       const updatePayload = buildMinimalUpdatePayload(imageUpdates);
       await productService.updateProduct(productId, updatePayload);
 
@@ -662,19 +652,7 @@ export default function ProductDetailPage() {
     if (!product) return;
 
     try {
-      // Remove the selected image from gallery and ensure main/secondary images are excluded
-      const updatedImages = product.images
-        .filter((img) => img !== imageUrl)
-        .filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage,
-        );
-
-      const imageUpdates = {
-        secondaryImage: imageUrl,
-        secondary_image: imageUrl,
-        images: updatedImages,
-      };
-
+      const imageUpdates = buildSetSecondaryImagePayload(product, imageUrl);
       const updatePayload = buildMinimalUpdatePayload(imageUpdates);
       await productService.updateProduct(productId, updatePayload);
 

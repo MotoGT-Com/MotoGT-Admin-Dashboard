@@ -226,6 +226,71 @@ export function wasProductImageRemoved(
   );
 }
 
+type ProductImages = Pick<Product, 'mainImage' | 'secondaryImage' | 'images'>;
+
+function buildGalleryAfterPromotion(
+  product: ProductImages,
+  promotedUrl: string,
+  demotedUrl: string | null | undefined,
+  reservedUrls: Array<string | null | undefined>,
+): string[] {
+  const reserved = new Set(
+    [promotedUrl, ...reservedUrls]
+      .filter(Boolean)
+      .map((url) => normalizeImageUrl(url as string)),
+  );
+  const gallery: string[] = [];
+  const seen = new Set<string>();
+
+  const addToGallery = (url: string | null | undefined) => {
+    if (!url) return;
+    const normalized = normalizeImageUrl(url);
+    if (reserved.has(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
+    gallery.push(url);
+  };
+
+  for (const img of product.images || []) {
+    addToGallery(img);
+  }
+
+  addToGallery(demotedUrl);
+
+  return gallery;
+}
+
+export function buildSetPrimaryImagePayload(
+  product: ProductImages,
+  imageUrl: string,
+): UpdateProductRequest {
+  return {
+    mainImage: imageUrl,
+    main_image: imageUrl,
+    images: buildGalleryAfterPromotion(
+      product,
+      imageUrl,
+      product.mainImage,
+      [product.secondaryImage],
+    ),
+  };
+}
+
+export function buildSetSecondaryImagePayload(
+  product: ProductImages,
+  imageUrl: string,
+): UpdateProductRequest {
+  return {
+    secondaryImage: imageUrl,
+    secondary_image: imageUrl,
+    images: buildGalleryAfterPromotion(
+      product,
+      imageUrl,
+      product.secondaryImage,
+      [product.mainImage],
+    ),
+  };
+}
+
 function parseProductListResponse(
   body: any,
   params: ProductListParams,
