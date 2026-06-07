@@ -1,4 +1,7 @@
 /** @type {import('next').NextConfig} */
+const backendApiUrl =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.motogt.com/api";
+
 const nextConfig = {
   output: "standalone",
   typescript: {
@@ -13,6 +16,14 @@ const nextConfig = {
         source: "/",
         destination: "/login",
         permanent: false,
+      },
+    ];
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendApiUrl}/:path*`,
       },
     ];
   },

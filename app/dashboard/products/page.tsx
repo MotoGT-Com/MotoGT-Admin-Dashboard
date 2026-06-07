@@ -146,7 +146,7 @@ const getCarInfo = (product: Product): string => {
 export default function ProductsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
   // Store and Language state
   const [stores, setStores] = useState<any[]>([]);
@@ -248,14 +248,14 @@ export default function ProductsPage() {
 
   // Fetch stores and languages on mount
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     const initializeStoresAndLanguages = async () => {
       try {
         setStoresLoading(true);
 
-        const [fetchedStores, fetchedLanguages] = await Promise.all([
-          settingsService.getStores(),
-          settingsService.getLanguages(),
-        ]);
+        const fetchedStores = await settingsService.getStores();
+        const fetchedLanguages = await settingsService.getLanguages();
 
         setStores(fetchedStores);
         setLanguages(fetchedLanguages);
@@ -335,7 +335,7 @@ export default function ProductsPage() {
     };
 
     initializeStoresAndLanguages();
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   // Handle edit query parameter
   useEffect(() => {
@@ -401,7 +401,8 @@ export default function ProductsPage() {
       });
 
       // Extract display data from each product
-      const productsWithDisplayData = response.data.map((product: Product) => ({
+      const productsWithDisplayData = (Array.isArray(response.data) ? response.data : []).map(
+        (product: Product) => ({
         ...product,
         name: getProductName(product, selectedLanguage.code),
         description: getProductDescription(product, selectedLanguage.code),
@@ -411,7 +412,7 @@ export default function ProductsPage() {
       }));
 
       setProducts(productsWithDisplayData);
-      setTotalProducts(response.meta.total); // Use meta.total from server
+      setTotalProducts(response.meta?.total ?? 0);
     } catch (error: any) {
       console.error("Failed to fetch products:", error);
       toast.error("Error", {
@@ -433,10 +434,14 @@ export default function ProductsPage() {
 
   // Fetch products when page, filters, or store/language changes
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
     if (selectedStore && selectedLanguage) {
       fetchProducts();
     }
   }, [
+    authLoading,
+    isAuthenticated,
     selectedStore,
     selectedLanguage,
     debouncedSearchQuery,

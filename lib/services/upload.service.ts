@@ -42,6 +42,27 @@ class UploadService {
   }
 
   /**
+   * Delete an image for an entity
+   * DELETE /api/upload-image
+   */
+  async deleteImage(
+    entityType: EntityType,
+    entityId: string,
+    imageField: ImageField,
+  ): Promise<void> {
+    try {
+      await apiClient.delete('/upload-image', {
+        entityType,
+        entityId,
+        imageField,
+      });
+    } catch (error: any) {
+      console.error('Delete image error:', error);
+      throw new Error(error.response?.data?.error?.message || 'Failed to delete image');
+    }
+  }
+
+  /**
    * Validate image file before upload
    */
   validateImageFile(file: File): { valid: boolean; error?: string } {

@@ -19,7 +19,7 @@ FROM base AS builder
 WORKDIR /app
 
 # Accept build argument for API URL
-ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_API_BASE_URL=https://api.motogt.com/api
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 # Copy dependencies from deps stage
@@ -35,8 +35,10 @@ RUN pnpm run build
 FROM base AS runner
 WORKDIR /app
 
+ARG NEXT_PUBLIC_API_BASE_URL=https://api.motogt.com/api
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 # Install curl for health checks
 RUN apk add --no-cache curl

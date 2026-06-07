@@ -90,6 +90,11 @@ class ApiClient {
               }
               return this.client(originalRequest);
             }
+
+            this.clearTokens();
+            if (typeof window !== 'undefined') {
+              window.location.href = '/login';
+            }
           } catch (refreshError) {
             // Refresh failed - clear tokens and redirect to login
             this.clearTokens();
@@ -174,8 +179,8 @@ class ApiClient {
     return this.client.patch<ApiResponse<T>>(url, data);
   }
 
-  public delete<T = any>(url: string) {
-    return this.client.delete<ApiResponse<T>>(url);
+  public delete<T = any>(url: string, data?: any) {
+    return this.client.delete<ApiResponse<T>>(url, { data });
   }
 }
 

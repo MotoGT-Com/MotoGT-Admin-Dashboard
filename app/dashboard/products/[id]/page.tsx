@@ -43,7 +43,12 @@ import {
   Plus,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { productService, Product } from "@/lib/services/product.service";
+import {
+  productService,
+  Product,
+  buildProductImageRemovalPayload,
+  wasProductImageRemoved,
+} from "@/lib/services/product.service";
 import {
   productCarCompatibilityService,
   ProductCarCompatibility,
@@ -577,27 +582,16 @@ export default function ProductDetailPage() {
     }
   };
 
-  const buildMinimalUpdatePayload = (updates: any) => {
-    if (!product || !selectedLanguage || !selectedStore) return updates;
+  const buildMinimalUpdatePayload = (updates: Record<string, unknown>) => {
+    if (!product) return updates;
 
-    // Build a minimal but complete payload that satisfies API requirements
-    // while only changing the fields we actually want to update
     return {
       itemCode: product.itemCode,
-      storeId: selectedStore.id,
+      storeId: product.storeId,
       categoryId: product.categoryId || "",
       subCategoryId: product.subCategoryId || undefined,
       price: product.price,
       stockQuantity: product.stockQuantity,
-      adminUserId: selectedStore.id, // Use store ID as fallback for admin user
-      translations: [
-        {
-          languageId: selectedLanguage.id,
-          name: product.name || product.itemCode,
-          description: product.description || undefined,
-        },
-      ],
-      // Spread the updates to override the above fields if needed
       ...updates,
     };
   };
@@ -609,35 +603,23 @@ export default function ProductDetailPage() {
     if (!product) return;
 
     try {
-      let imageUpdates: any = {};
+      const imageUpdates = buildProductImageRemovalPayload(
+        product,
+        imageType,
+        imageUrl,
+      );
+      const updatedProduct = await productService.updateProduct(
+        productId,
+        imageUpdates,
+      );
 
-      if (imageType === "main") {
-        imageUpdates.mainImage = null;
-        // Keep images array clean - exclude main and secondary
-        imageUpdates.images = product.images.filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage,
+      if (!wasProductImageRemoved(updatedProduct, imageType, imageUrl)) {
+        throw new Error(
+          "The server did not remove the image. Please try again.",
         );
-      } else if (imageType === "secondary") {
-        imageUpdates.secondaryImage = null;
-        // Keep images array clean - exclude main and secondary
-        imageUpdates.images = product.images.filter(
-          (img) => img !== product.mainImage && img !== product.secondaryImage,
-        );
-      } else if (imageType === "gallery") {
-        // Filter out the deleted image and ensure main/secondary are excluded
-        imageUpdates.images = product.images
-          .filter((img) => img !== imageUrl)
-          .filter(
-            (img) =>
-              img !== product.mainImage && img !== product.secondaryImage,
-          );
       }
 
-      const updatePayload = buildMinimalUpdatePayload(imageUpdates);
-      await productService.updateProduct(productId, updatePayload);
-
       toast.success("Success", { description: "Image removed successfully" });
-
       await fetchProduct();
     } catch (error: any) {
       toast.error("Error", {
@@ -659,6 +641,7 @@ export default function ProductDetailPage() {
 
       const imageUpdates = {
         mainImage: imageUrl,
+        main_image: imageUrl,
         images: updatedImages,
       };
 
@@ -688,6 +671,7 @@ export default function ProductDetailPage() {
 
       const imageUpdates = {
         secondaryImage: imageUrl,
+        secondary_image: imageUrl,
         images: updatedImages,
       };
 

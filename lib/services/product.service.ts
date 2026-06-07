@@ -1,4 +1,5 @@
 import { apiClient } from '../api-client';
+import { getApiErrorMessage } from '../api-errors';
 
 export interface CarCompatibility {
   carId: string;
@@ -161,7 +162,128 @@ export interface CreateProductRequest {
   variants?: ProductVariant[];
 }
 
-export interface UpdateProductRequest extends Partial<CreateProductRequest> {}
+export interface UpdateProductRequest extends Partial<CreateProductRequest> {
+  main_image?: string | null;
+  secondary_image?: string | null;
+}
+
+const normalizeImageUrl = (url: string) => url.split('?')[0];
+
+export function buildProductImageRemovalPayload(
+  product: Pick<Product, 'mainImage' | 'secondaryImage' | 'images'>,
+  imageType: 'main' | 'secondary' | 'gallery',
+  imageUrl: string,
+): UpdateProductRequest {
+  const galleryImages = product.images || [];
+  const mainUrl = product.mainImage ? normalizeImageUrl(product.mainImage) : null;
+  const secondaryUrl = product.secondaryImage
+    ? normalizeImageUrl(product.secondaryImage)
+    : null;
+
+  const filteredGallery = galleryImages.filter((img) => {
+    const normalized = normalizeImageUrl(img);
+    return normalized !== mainUrl && normalized !== secondaryUrl;
+  });
+
+  if (imageType === 'main') {
+    return {
+      mainImage: null,
+      main_image: null,
+      images: filteredGallery,
+    };
+  }
+
+  if (imageType === 'secondary') {
+    return {
+      secondaryImage: null,
+      secondary_image: null,
+      images: filteredGallery,
+    };
+  }
+
+  const targetUrl = normalizeImageUrl(imageUrl);
+  return {
+    images: filteredGallery.filter((img) => normalizeImageUrl(img) !== targetUrl),
+  };
+}
+
+export function wasProductImageRemoved(
+  product: Pick<Product, 'mainImage' | 'secondaryImage' | 'images'>,
+  imageType: 'main' | 'secondary' | 'gallery',
+  imageUrl: string,
+): boolean {
+  if (imageType === 'main') {
+    return !product.mainImage;
+  }
+
+  if (imageType === 'secondary') {
+    return !product.secondaryImage;
+  }
+
+  const targetUrl = normalizeImageUrl(imageUrl);
+  return !(product.images || []).some(
+    (img) => normalizeImageUrl(img) === targetUrl,
+  );
+}
+
+function parseProductListResponse(
+  body: any,
+  params: ProductListParams,
+): ProductListResponse {
+  if (body?.success === false) {
+    throw new Error(body?.error?.message || 'Failed to fetch products');
+  }
+
+  const payload = body?.data;
+  const page = params.page ?? 1;
+  const limit = params.limit ?? 20;
+
+  if (Array.isArray(payload)) {
+    const meta = body?.meta ?? {};
+    return {
+      data: payload,
+      meta: {
+        total: meta.total ?? payload.length,
+        page: meta.page ?? page,
+        limit: meta.limit ?? limit,
+        totalPages: meta.totalPages ?? 1,
+        hasNext: meta.hasNext ?? false,
+        hasPrev: meta.hasPrev ?? false,
+      },
+    };
+  }
+
+  if (payload && typeof payload === 'object') {
+    const products =
+      payload.products ??
+      payload.items ??
+      (Array.isArray(payload.data) ? payload.data : []);
+
+    const pagination = payload.pagination ?? payload.meta ?? body?.meta ?? {};
+    const total =
+      pagination.total ??
+      pagination.totalCount ??
+      payload.total ??
+      products.length;
+
+    return {
+      data: products,
+      meta: {
+        total,
+        page: pagination.page ?? payload.page ?? page,
+        limit: pagination.limit ?? payload.limit ?? limit,
+        totalPages:
+          pagination.totalPages ??
+          payload.totalPages ??
+          Math.max(1, Math.ceil(total / (limit || 1))),
+        hasNext: pagination.hasNext ?? payload.hasNext ?? false,
+        hasPrev: pagination.hasPrev ?? payload.hasPrev ?? page > 1,
+      },
+    };
+  }
+
+  throw new Error('Unexpected products API response format');
+}
 
 class ProductService {
   /**
@@ -192,22 +314,11 @@ class ProductService {
       if (params.carYear) queryParams.set('carYear', String(params.carYear));
       
       const response = await apiClient.get<any>(`/admin/products?${queryParams.toString()}`);
-      
-      // API returns { success: true, data: [...], meta: {...} }
-      return {
-        data: response.data.data as Product[],
-        meta: response.data.meta as {
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-          hasNext: boolean;
-          hasPrev: boolean;
-        }
-      };
-    } catch (error: any) {
+
+      return parseProductListResponse(response.data, params);
+    } catch (error: unknown) {
       console.error('List products error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch products');
+      throw new Error(getApiErrorMessage(error, 'Failed to fetch products'));
     }
   }
 

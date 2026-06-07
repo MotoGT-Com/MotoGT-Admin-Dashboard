@@ -29,10 +29,16 @@ const FALLBACK_STORE: Store = {
   isActive: true,
   supportedLanguages: [
     {
-      languageId: '1',
+      languageId: '3a59981f-5f2d-4b3e-a12a-2c2b25b4680b',
       languageCode: 'en',
       languageName: 'English',
       isDefault: true,
+    },
+    {
+      languageId: '16d69bac-4236-4e4d-8642-5250a4bfcbb8',
+      languageCode: 'ar',
+      languageName: 'Arabic',
+      isDefault: false,
     },
   ],
   createdAt: new Date().toISOString(),
@@ -42,7 +48,7 @@ const FALLBACK_STORE: Store = {
 // Fallback languages in case API fails
 const FALLBACK_LANGUAGES: Language[] = [
   {
-    id: '1',
+    id: '3a59981f-5f2d-4b3e-a12a-2c2b25b4680b',
     name: 'English',
     code: 'en',
     isActive: true,
@@ -50,7 +56,7 @@ const FALLBACK_LANGUAGES: Language[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-    id: '2',
+    id: '16d69bac-4236-4e4d-8642-5250a4bfcbb8',
     name: 'Arabic',
     code: 'ar',
     isActive: true,
@@ -120,6 +126,7 @@ class SettingsService {
         silent: true,
       });
       this.cachedStores = response;
+      this.syncStoredSelections(response, this.cachedLanguages);
       return response;
     } catch (error) {
       console.error('Failed to fetch stores:', error);
@@ -163,11 +170,40 @@ class SettingsService {
       
       const languages = Array.from(languagesMap.values());
       this.cachedLanguages = languages.length > 0 ? languages : FALLBACK_LANGUAGES;
+      this.syncStoredSelections(this.cachedStores, this.cachedLanguages);
       return this.cachedLanguages;
     } catch (error) {
       console.error('Failed to extract languages from stores:', error);
       // Return fallback languages on error
       return FALLBACK_LANGUAGES;
+    }
+  }
+
+  /**
+   * Drop stale store/language IDs saved before valid API data was available.
+   */
+  private syncStoredSelections(
+    stores: Store[] | null,
+    languages: Language[] | null,
+  ): void {
+    if (typeof window === 'undefined') return;
+
+    const storedStoreId = localStorage.getItem(this.STORAGE_KEY_STORE);
+    if (
+      storedStoreId &&
+      stores &&
+      !stores.some((store) => store.id === storedStoreId)
+    ) {
+      localStorage.removeItem(this.STORAGE_KEY_STORE);
+    }
+
+    const storedLanguageId = localStorage.getItem(this.STORAGE_KEY_LANGUAGE);
+    if (
+      storedLanguageId &&
+      languages &&
+      !languages.some((language) => language.id === storedLanguageId)
+    ) {
+      localStorage.removeItem(this.STORAGE_KEY_LANGUAGE);
     }
   }
 
