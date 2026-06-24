@@ -64,7 +64,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { productService, Product } from "@/lib/services/product.service";
+import { productService, Product, sumVariantStock, getEffectiveStockQuantity } from "@/lib/services/product.service";
 import {
   productCarCompatibilityService,
   ProductCarCompatibility,
@@ -648,54 +648,83 @@ export default function ProductsPage() {
 
   const handleOpenDialog = async (product?: Product) => {
     if (product) {
-      setEditingProduct(product);
+      let productToEdit = product;
+
+      if (selectedLanguage) {
+        try {
+          productToEdit = await productService.getProductById(
+            product.id,
+            selectedLanguage.id,
+          );
+        } catch (error) {
+          console.error("Failed to fetch full product for editing:", error);
+        }
+      }
+
+      setEditingProduct(productToEdit);
       setIsComingSoon(
-        product.stockQuantity === COMING_SOON_STOCK_QUANTITY &&
-          (!product.variants || product.variants.length === 0),
+        productToEdit.stockQuantity === COMING_SOON_STOCK_QUANTITY &&
+          (!productToEdit.variants || productToEdit.variants.length === 0),
       );
       setFormData({
-        itemCode: product.itemCode,
-        name: product.name || "",
-        sellingPrice: product.price.toString(),
-        productType: product.productTypeId || "",
+        itemCode: productToEdit.itemCode,
+        name: productToEdit.name || "",
+        sellingPrice: productToEdit.price.toString(),
+        productType: productToEdit.productTypeId || "",
         carMake: "",
         carModel: "",
         carYearFrom: "",
         carYearTo: "",
-        description: product.description || "",
-        quantity: product.stockQuantity.toString(),
-        material: product.material || "",
-        category: product.categoryId,
-        subCategory: product.subCategoryId || "",
-        color: product.color || "",
+        description: productToEdit.description || "",
+        quantity: getEffectiveStockQuantity(productToEdit).toString(),
+        material: productToEdit.material || "",
+        category: productToEdit.categoryId,
+        subCategory: productToEdit.subCategoryId || "",
+        color: productToEdit.color || "",
         brand: "",
         size: "",
       });
+
+      const productVariants = productToEdit.variants ?? [];
+      setHasVariants(productVariants.length > 0);
+      setVariants(
+        productVariants.map((variant) => ({
+          id: variant.id || variant.sku || Date.now().toString(),
+          sku: variant.sku,
+          size: variant.size || undefined,
+          color: variant.color || undefined,
+          priceAdjustment: variant.priceAdjustment,
+          stockQuantity: variant.stockQuantity,
+          mainImage: variant.mainImage || undefined,
+          images: variant.images,
+          isActive: variant.isActive,
+        })),
+      );
 
       // Populate existing images for preview
       const existingImages: ProductImage[] = [];
       let imageIdCounter = 1;
 
-      if (product.mainImage) {
+      if (productToEdit.mainImage) {
         existingImages.push({
           id: `existing-main-${imageIdCounter++}`,
-          url: product.mainImage,
+          url: productToEdit.mainImage,
           isPrimary: true,
           isSecondary: false,
         });
       }
 
-      if (product.secondaryImage) {
+      if (productToEdit.secondaryImage) {
         existingImages.push({
           id: `existing-secondary-${imageIdCounter++}`,
-          url: product.secondaryImage,
+          url: productToEdit.secondaryImage,
           isPrimary: false,
           isSecondary: true,
         });
       }
 
-      if (product.images && product.images.length > 0) {
-        product.images.forEach((imgUrl) => {
+      if (productToEdit.images && productToEdit.images.length > 0) {
+        productToEdit.images.forEach((imgUrl) => {
           existingImages.push({
             id: `existing-gallery-${imageIdCounter++}`,
             url: imgUrl,
@@ -708,9 +737,12 @@ export default function ProductsPage() {
       setUploadedImages(existingImages);
 
       // Set selected car compatibility if available
-      if (product.carCompatibility && product.carCompatibility.length > 0) {
+      if (
+        productToEdit.carCompatibility &&
+        productToEdit.carCompatibility.length > 0
+      ) {
         setSelectedCarCompatibility(
-          product.carCompatibility.map((cc) => ({
+          productToEdit.carCompatibility.map((cc) => ({
             carId: cc.carId,
             yearFrom: cc.carYearFrom || undefined,
             yearTo: cc.carYearTo || undefined,
@@ -721,8 +753,8 @@ export default function ProductsPage() {
       }
 
       // Load car compatibilities for existing product
-      if (product.id) {
-        await loadCompatibilities(product.id);
+      if (productToEdit.id) {
+        await loadCompatibilities(productToEdit.id);
       }
 
       // Fetch available cars for the selected store
@@ -1094,7 +1126,9 @@ export default function ProductsPage() {
         categoryId: formData.category,
         subCategoryId: formData.subCategory || undefined,
         price: parseFloat(formData.sellingPrice),
-        stockQuantity: hasVariants ? 0 : parseInt(formData.quantity), // 0 if has variants
+        stockQuantity: hasVariants
+          ? sumVariantStock(variants)
+          : parseInt(formData.quantity),
         brand: formData.brand || undefined, // Always include brand if provided
         size: !hasVariants ? formData.size || undefined : undefined, // Only for non-variant products
         productTypeId: formData.productType || undefined, // Product type ID from database
@@ -1783,7 +1817,8 @@ export default function ProductsPage() {
                 </thead>
                 <tbody>
                   {products.map((product) => {
-                    const status = getStockStatus(product.stockQuantity);
+                    const effectiveStock = getEffectiveStockQuantity(product);
+                    const status = getStockStatus(effectiveStock);
                     return (
                       <tr
                         key={product.id}
@@ -1818,7 +1853,7 @@ export default function ProductsPage() {
                         <td className="py-3 px-4 font-semibold">
                           {product.price.toFixed(3)}
                         </td>
-                        <td className="py-3 px-4">{product.stockQuantity}</td>
+                        <td className="py-3 px-4">{effectiveStock}</td>
                         <td className="py-3 px-4">
                           <span
                             className={`py-1 px-3 rounded-full text-xs font-medium ${status.className}`}
@@ -2337,7 +2372,7 @@ export default function ProductsPage() {
                 )}
                 {hasVariants && (
                   <p className="text-xs text-muted-foreground">
-                    Stock managed per variant
+                    Stock managed per variant — total: {sumVariantStock(variants)}
                   </p>
                 )}
                 {isComingSoon && !hasVariants && (

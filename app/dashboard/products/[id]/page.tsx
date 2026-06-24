@@ -50,6 +50,8 @@ import {
   wasProductImageRemoved,
   buildSetPrimaryImagePayload,
   buildSetSecondaryImagePayload,
+  sumVariantStock,
+  getEffectiveStockQuantity,
 } from "@/lib/services/product.service";
 import {
   productCarCompatibilityService,
@@ -273,7 +275,7 @@ export default function ProductDetailPage() {
       nameAr: arabicTranslation?.name || "",
       itemCode: product.itemCode,
       price: product.price.toString(),
-      stockQuantity: product.stockQuantity.toString(),
+      stockQuantity: getEffectiveStockQuantity(product).toString(),
       description: englishTranslation?.description || "",
       descriptionAr: arabicTranslation?.description || "",
       categoryId: product.categoryId || "",
@@ -439,11 +441,19 @@ export default function ProductDetailPage() {
   const handleSaveEdit = async () => {
     if (!product || !selectedLanguage || !selectedStore) return;
 
+    const hasVariants = Boolean(product.variants && product.variants.length > 0);
+
     // Validation for English fields
-    if (!formData.name || !formData.price || !formData.stockQuantity) {
+    if (
+      !formData.name ||
+      !formData.price ||
+      (!hasVariants && !formData.stockQuantity)
+    ) {
       toast.error("Validation Error", {
         description:
-          "Please fill in all required English fields (Name, Price, Stock Quantity)",
+          "Please fill in all required English fields (Name, Price" +
+          (!hasVariants ? ", Stock Quantity" : "") +
+          ")",
       });
       return;
     }
@@ -469,7 +479,9 @@ export default function ProductDetailPage() {
         categoryId: formData.categoryId,
         subCategoryId: formData.subCategoryId || undefined,
         price: parseFloat(formData.price),
-        stockQuantity: parseInt(formData.stockQuantity),
+        stockQuantity: hasVariants
+          ? sumVariantStock(product.variants!)
+          : parseInt(formData.stockQuantity),
         brand: formData.brand || undefined,
         size: formData.size || undefined,
         translations: [
@@ -700,7 +712,9 @@ export default function ProductDetailPage() {
     );
   }
 
-  const stockStatus = getStockStatus(product.stockQuantity);
+  const effectiveStock = getEffectiveStockQuantity(product);
+  const stockStatus = getStockStatus(effectiveStock);
+  const hasVariants = Boolean(product.variants && product.variants.length > 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -1056,7 +1070,8 @@ export default function ProductDetailPage() {
                         )}
                         {product.variants && product.variants.length > 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Stock managed per variant
+                            Stock managed per variant — total:{" "}
+                            {getEffectiveStockQuantity(product)}
                           </p>
                         )}
                         {isComingSoon &&
@@ -1269,12 +1284,17 @@ export default function ProductDetailPage() {
                           <p className="text-2xl font-bold">
                             {product.stockQuantity === COMING_SOON_STOCK_QUANTITY
                               ? "Coming Soon"
-                              : product.stockQuantity}
+                              : effectiveStock}
                           </p>
                           <Badge className={stockStatus.className}>
                             {stockStatus.label}
                           </Badge>
                         </div>
+                        {hasVariants && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Total across {product.variants!.length} variant(s)
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>

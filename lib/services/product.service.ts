@@ -167,6 +167,21 @@ export interface UpdateProductRequest extends Partial<CreateProductRequest> {
   secondary_image?: string | null;
 }
 
+export function sumVariantStock(variants: ProductVariant[]): number {
+  return variants
+    .filter((v) => v.isActive !== false)
+    .reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+}
+
+export function getEffectiveStockQuantity(
+  product: Pick<Product, 'stockQuantity' | 'variants'>,
+): number {
+  if (product.variants?.length) {
+    return sumVariantStock(product.variants);
+  }
+  return product.stockQuantity;
+}
+
 const normalizeImageUrl = (url: string) => url.split('?')[0];
 
 export function buildProductImageRemovalPayload(
