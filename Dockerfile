@@ -29,6 +29,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Build the application
+ENV DOCKER_BUILD=true
 RUN pnpm run build
 
 # Runner stage

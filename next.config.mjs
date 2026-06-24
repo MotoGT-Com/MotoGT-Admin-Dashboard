@@ -2,8 +2,10 @@
 const backendApiUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.motogt.com/api";
 
+const isDockerBuild = process.env.DOCKER_BUILD === "true";
+
 const nextConfig = {
-  output: "standalone",
+  ...(isDockerBuild ? { output: "standalone" } : {}),
   typescript: {
     ignoreBuildErrors: true,
   },
