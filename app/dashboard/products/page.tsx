@@ -86,6 +86,7 @@ interface CarData {
   id: string;
   brand: string;
   model: string;
+  trim?: string | null;
   yearFrom?: number | null;
   yearTo?: number | null;
   year_from?: number | null;
@@ -166,6 +167,7 @@ export default function ProductsPage() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filterCarBrand, setFilterCarBrand] = useState("any");
   const [filterCarModel, setFilterCarModel] = useState("any");
+  const [filterCarTrim, setFilterCarTrim] = useState("any");
   const [filterCarYear, setFilterCarYear] = useState("any");
   const [filterMake, setFilterMake] = useState("any");
   const [filterModel, setFilterModel] = useState("any");
@@ -177,9 +179,15 @@ export default function ProductsPage() {
   // Product types
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
 
-  // Car brands and models
+  // Car brands, models, and trims
   const [carBrands, setCarBrands] = useState<string[]>([]);
   const [carModels, setCarModels] = useState<string[]>([]);
+  const [carTrims, setCarTrims] = useState<string[]>([]);
+  const [loadingFilterTrims, setLoadingFilterTrims] = useState(false);
+  /** Compatibilities keyed by product id for the active brand+model (for trim filter) */
+  const [brandModelCompatMap, setBrandModelCompatMap] = useState<
+    Record<string, ProductCarCompatibility[]>
+  >({});
 
   // Categories and subcategories
   const [categories, setCategories] = useState<Category[]>([]);
@@ -201,9 +209,221 @@ export default function ProductsPage() {
     useState<ProductCarCompatibility | null>(null);
   const [compatibilityForm, setCompatibilityForm] = useState({
     carId: "",
+    brand: "",
+    model: "",
     yearFrom: "",
     yearTo: "",
+    trim: "",
   });
+  const [availableTrims, setAvailableTrims] = useState<string[]>([]);
+  const [loadingTrims, setLoadingTrims] = useState(false);
+  const [showAddTrimField, setShowAddTrimField] = useState(false);
+  const [newTrimInput, setNewTrimInput] = useState("");
+
+  const ALL_TRIMS_VALUE = "__all__";
+
+  const resetCompatibilityForm = () => {
+    setCompatibilityForm({
+      carId: "",
+      brand: "",
+      model: "",
+      yearFrom: "",
+      yearTo: "",
+      trim: "",
+    });
+    setAvailableTrims([]);
+    setShowAddTrimField(false);
+    setNewTrimInput("");
+  };
+
+  const compatibilityBrands = Array.from(
+    new Set(availableCars.map((car) => car.brand).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const compatibilityModels = Array.from(
+    new Set(
+      availableCars
+        .filter((car) => car.brand === compatibilityForm.brand)
+        .map((car) => car.model)
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const trimOptions = Array.from(
+    new Set(
+      [...availableTrims, compatibilityForm.trim].filter(
+        (trim): trim is string => Boolean(trim),
+      ),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const resolveCarId = (
+    brand: string,
+    model: string,
+    trim?: string,
+    cars = availableCars,
+  ) => {
+    const normalizedTrim = (trim || "").trim();
+    const matches = cars.filter(
+      (car) => car.brand === brand && car.model === model,
+    );
+
+    if (normalizedTrim) {
+      const exact = matches.find(
+        (car) => (car.trim || "").trim() === normalizedTrim,
+      );
+      return exact?.id || "";
+    }
+
+    const withoutTrim = matches.find((car) => !(car.trim || "").trim());
+    return withoutTrim?.id || matches[0]?.id || "";
+  };
+
+  const loadAvailableCars = async () => {
+    if (!selectedStore) return [];
+
+    try {
+      const cars = await carService.listCars({
+        store_id: selectedStore.id,
+        limit: 1000,
+      });
+      setAvailableCars(cars || []);
+      return cars || [];
+    } catch (error) {
+      console.error("Error fetching cars:", error);
+      setAvailableCars([]);
+      return [];
+    }
+  };
+
+  const ensureCarIdForCompatibility = async (
+    brand: string,
+    model: string,
+    trim: string,
+    carsOverride?: CarData[],
+  ) => {
+    if (!selectedStore) {
+      throw new Error("Please select a store first");
+    }
+
+    let cars = carsOverride || availableCars;
+    if (cars.length === 0) {
+      cars = await loadAvailableCars();
+    }
+
+    const normalizedTrim = trim.trim();
+    let carId = resolveCarId(brand, model, normalizedTrim, cars);
+    if (!carId && normalizedTrim) {
+      carId = resolveCarId(brand, model, "", cars);
+    }
+    if (!carId) {
+      throw new Error(
+        `No car found for ${brand} ${model}. Add it under Cars first.`,
+      );
+    }
+    return carId;
+  };
+
+  const loadTrimsForCompatibility = async (
+    carId: string,
+    yearFrom?: string,
+    carsOverride?: CarData[],
+  ) => {
+    if (!selectedStore || !carId) {
+      setAvailableTrims([]);
+      return;
+    }
+
+    const cars = carsOverride || availableCars;
+    let car = cars.find((c) => c.id === carId);
+
+    if (!car) {
+      try {
+        car = await carService.getCarById(carId);
+      } catch (error) {
+        console.error("Error fetching car for trims:", error);
+        setAvailableTrims([]);
+        return;
+      }
+    }
+
+    if (!car?.brand || !car?.model) {
+      setAvailableTrims([]);
+      return;
+    }
+
+    const year =
+      (yearFrom && parseInt(yearFrom, 10)) ||
+      car.year_from ||
+      car.yearFrom ||
+      new Date().getFullYear();
+
+    const localTrims = Array.from(
+      new Set(
+        cars
+          .filter(
+            (c) =>
+              c.brand === car.brand &&
+              c.model === car.model &&
+              (c.trim || "").trim(),
+          )
+          .map((c) => (c.trim || "").trim()),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+
+    try {
+      setLoadingTrims(true);
+      let apiTrims: string[] = [];
+      try {
+        apiTrims = await carService.getTrims(
+          selectedStore.id,
+          car.brand,
+          car.model,
+          Number(year),
+        );
+      } catch {
+        apiTrims = [];
+      }
+      setAvailableTrims(
+        Array.from(new Set([...(apiTrims || []), ...localTrims])).sort((a, b) =>
+          a.localeCompare(b),
+        ),
+      );
+    } finally {
+      setLoadingTrims(false);
+    }
+  };
+
+  const handleAddNewTrimOption = () => {
+    const value = newTrimInput.trim();
+    if (!value) {
+      toast.error("Error", { description: "Enter a trim name first" });
+      return;
+    }
+
+    setAvailableTrims((prev) =>
+      prev.includes(value)
+        ? prev
+        : [...prev, value].sort((a, b) => a.localeCompare(b)),
+    );
+    const carId = resolveCarId(
+      compatibilityForm.brand,
+      compatibilityForm.model,
+      value,
+    );
+    setCompatibilityForm({
+      ...compatibilityForm,
+      trim: value,
+      carId:
+        carId ||
+        resolveCarId(compatibilityForm.brand, compatibilityForm.model, ""),
+    });
+    setNewTrimInput("");
+    setShowAddTrimField(false);
+    toast.success("Trim added", {
+      description: `"${value}" selected for this compatibility`,
+    });
+  };
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -379,11 +599,10 @@ export default function ProductsPage() {
 
     try {
       setLoading(true);
-      const response = await productService.listProducts({
+
+      const baseParams = {
         storeId: selectedStore.id,
         languageId: selectedLanguage.id,
-        page: currentPage,
-        limit: rowsPerPage,
         search: debouncedSearchQuery || undefined,
         productTypeId:
           filterProductType !== "any" ? filterProductType : undefined,
@@ -392,26 +611,87 @@ export default function ProductsPage() {
           filterSubCategory !== "any" ? filterSubCategory : undefined,
         carBrand: filterCarBrand !== "any" ? filterCarBrand : undefined,
         carModel: filterCarModel !== "any" ? filterCarModel : undefined,
-        // New year-range based filtering
         carId:
           filterCarBrand !== "any" && filterCarModel !== "any"
             ? getCarIdFromBrandModel(filterCarBrand, filterCarModel)
             : undefined,
         carYear: filterCarYear !== "any" ? parseInt(filterCarYear) : undefined,
+      };
+
+      const mapDisplay = (list: Product[]) =>
+        (Array.isArray(list) ? list : []).map((product: Product) => ({
+          ...product,
+          name: getProductName(product, selectedLanguage.code),
+          description: getProductDescription(product, selectedLanguage.code),
+          color: getProductColor(product, selectedLanguage.code),
+          material: getProductMaterial(product, selectedLanguage.code),
+          carInfo: getCarInfo(product),
+        }));
+
+      // Production API may ignore carTrim — apply strict trim filter client-side.
+      const trimFilterActive =
+        filterCarTrim !== "any" &&
+        filterCarBrand !== "any" &&
+        filterCarModel !== "any";
+
+      if (trimFilterActive) {
+        const response = await productService.listProducts({
+          ...baseParams,
+          page: 1,
+          limit: 100,
+          carTrim: filterCarTrim,
+        });
+
+        const candidates = Array.isArray(response.data) ? response.data : [];
+        let compatMap = brandModelCompatMap;
+
+        const missing = candidates.filter((p) => !compatMap[p.id]);
+        if (missing.length > 0) {
+          const loaded = await Promise.all(
+            missing.map(async (p) => {
+              try {
+                const comps =
+                  await productCarCompatibilityService.listCompatibilities(
+                    p.id,
+                  );
+                return [p.id, comps] as const;
+              } catch {
+                return [p.id, [] as ProductCarCompatibility[]] as const;
+              }
+            }),
+          );
+          compatMap = { ...compatMap, ...Object.fromEntries(loaded) };
+          setBrandModelCompatMap(compatMap);
+        }
+
+        const brandL = filterCarBrand.toLowerCase();
+        const modelL = filterCarModel.toLowerCase();
+        const trimL = filterCarTrim.toLowerCase();
+
+        const filtered = candidates.filter((product) => {
+          const comps = compatMap[product.id] || [];
+          return comps.some((c) => {
+            const sameVehicle =
+              (c.carBrand || "").toLowerCase() === brandL &&
+              (c.carModel || "").toLowerCase() === modelL;
+            if (!sameVehicle) return false;
+            return (c.trim || "").trim().toLowerCase() === trimL;
+          });
+        });
+
+        const start = (currentPage - 1) * rowsPerPage;
+        setProducts(mapDisplay(filtered.slice(start, start + rowsPerPage)));
+        setTotalProducts(filtered.length);
+        return;
+      }
+
+      const response = await productService.listProducts({
+        ...baseParams,
+        page: currentPage,
+        limit: rowsPerPage,
       });
 
-      // Extract display data from each product
-      const productsWithDisplayData = (Array.isArray(response.data) ? response.data : []).map(
-        (product: Product) => ({
-        ...product,
-        name: getProductName(product, selectedLanguage.code),
-        description: getProductDescription(product, selectedLanguage.code),
-        color: getProductColor(product, selectedLanguage.code),
-        material: getProductMaterial(product, selectedLanguage.code),
-        carInfo: getCarInfo(product),
-      }));
-
-      setProducts(productsWithDisplayData);
+      setProducts(mapDisplay(response.data));
       setTotalProducts(response.meta?.total ?? 0);
     } catch (error: any) {
       console.error("Failed to fetch products:", error);
@@ -450,6 +730,7 @@ export default function ProductsPage() {
     filterSubCategory,
     filterCarBrand,
     filterCarModel,
+    filterCarTrim,
     filterCarYear,
     currentPage,
     rowsPerPage,
@@ -465,6 +746,7 @@ export default function ProductsPage() {
     filterSubCategory,
     filterCarBrand,
     filterCarModel,
+    filterCarTrim,
     filterCarYear,
   ]);
 
@@ -527,11 +809,116 @@ export default function ProductsPage() {
       } else {
         setCarModels([]);
         setFilterCarModel("any");
+        setFilterCarTrim("any");
         setFilterCarYear("any");
+        setCarTrims([]);
+        setBrandModelCompatMap({});
       }
     };
     fetchModels();
   }, [filterCarBrand, selectedStore]);
+
+  // Fetch trims that still have at least one product for this brand + model
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchTrims = async () => {
+      if (
+        filterCarBrand === "any" ||
+        filterCarModel === "any" ||
+        !selectedStore ||
+        !selectedLanguage
+      ) {
+        setCarTrims([]);
+        setFilterCarTrim("any");
+        setBrandModelCompatMap({});
+        setLoadingFilterTrims(false);
+        return;
+      }
+
+      setLoadingFilterTrims(true);
+      try {
+        const productList = await productService.listProducts({
+          storeId: selectedStore.id,
+          languageId: selectedLanguage.id,
+          carBrand: filterCarBrand,
+          carModel: filterCarModel,
+          carYear:
+            filterCarYear !== "any" ? parseInt(filterCarYear, 10) : undefined,
+          page: 1,
+          limit: 100,
+        });
+        const products = Array.isArray(productList.data)
+          ? productList.data
+          : [];
+
+        const compatEntries = await Promise.all(
+          products.map(async (product) => {
+            try {
+              const comps =
+                await productCarCompatibilityService.listCompatibilities(
+                  product.id,
+                );
+              return [product.id, comps] as const;
+            } catch {
+              return [product.id, [] as ProductCarCompatibility[]] as const;
+            }
+          }),
+        );
+
+        if (cancelled) return;
+
+        const compatMap = Object.fromEntries(compatEntries);
+        setBrandModelCompatMap(compatMap);
+
+        const brandL = filterCarBrand.toLowerCase();
+        const modelL = filterCarModel.toLowerCase();
+        // Only trims that appear on at least one product for this make/model
+        const trimsWithProducts = [
+          ...new Set(
+            compatEntries.flatMap(([, comps]) =>
+              comps
+                .filter(
+                  (c) =>
+                    (c.carBrand || "").toLowerCase() === brandL &&
+                    (c.carModel || "").toLowerCase() === modelL,
+                )
+                .map((c) => (c.trim || "").trim())
+                .filter(Boolean),
+            ),
+          ),
+        ].sort((a, b) => a.localeCompare(b));
+
+        setCarTrims(trimsWithProducts);
+        setFilterCarTrim((current) =>
+          current !== "any" && !trimsWithProducts.includes(current)
+            ? "any"
+            : current,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to fetch car trims:", error);
+          setCarTrims([]);
+          setBrandModelCompatMap({});
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingFilterTrims(false);
+        }
+      }
+    };
+
+    fetchTrims();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    filterCarBrand,
+    filterCarModel,
+    filterCarYear,
+    selectedStore,
+    selectedLanguage,
+  ]);
 
   const handleStoreChange = (storeId: string) => {
     const store = stores.find((s) => s.id === storeId);
@@ -821,7 +1208,7 @@ export default function ProductsPage() {
     setCompatibilities([]);
     setShowCompatibilityDialog(false);
     setEditingCompatibility(null);
-    setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
+    resetCompatibilityForm();
     setFormData({
       itemCode: "",
       name: "",
@@ -861,21 +1248,38 @@ export default function ProductsPage() {
     if (!editingProduct) return;
 
     try {
-      await productCarCompatibilityService.addCompatibility(editingProduct.id, {
-        car_id: compatibilityForm.carId,
-        year_from: parseInt(compatibilityForm.yearFrom),
-        year_to: compatibilityForm.yearTo
+      const brand = compatibilityForm.brand;
+      const model = compatibilityForm.model;
+      const nextTrim = compatibilityForm.trim.trim() || null;
+      const carId = await ensureCarIdForCompatibility(
+        brand,
+        model,
+        nextTrim || "",
+      );
+
+      const saved = await productCarCompatibilityService.addCompatibility(editingProduct.id, {
+        carId,
+        yearFrom: parseInt(compatibilityForm.yearFrom),
+        yearTo: compatibilityForm.yearTo
           ? parseInt(compatibilityForm.yearTo)
           : null,
+        trim: nextTrim,
       });
 
-      toast.success("Success", {
-        description: "Car compatibility added",
-      });
+      if ((saved as any).__trimSkipped && nextTrim) {
+        toast.success("Compatibility added", {
+          description:
+            "Year range saved, but trim was skipped — run DB migration 053 on the API database.",
+        });
+      } else {
+        toast.success("Success", {
+          description: "Car compatibility added",
+        });
+      }
 
       await loadCompatibilities(editingProduct.id);
       setShowCompatibilityDialog(false);
-      setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
+      resetCompatibilityForm();
     } catch (error: any) {
       toast.error("Error", {
         description: error.message || "Failed to add compatibility",
@@ -888,25 +1292,33 @@ export default function ProductsPage() {
     if (!editingProduct || !editingCompatibility) return;
 
     try {
-      await productCarCompatibilityService.updateCompatibility(
+      const nextTrim = compatibilityForm.trim.trim() || null;
+      const yearFrom = parseInt(compatibilityForm.yearFrom);
+      const yearTo = compatibilityForm.yearTo
+        ? parseInt(compatibilityForm.yearTo)
+        : null;
+
+      const saved = await productCarCompatibilityService.updateCompatibility(
         editingProduct.id,
         editingCompatibility.id,
-        {
-          year_from: parseInt(compatibilityForm.yearFrom),
-          year_to: compatibilityForm.yearTo
-            ? parseInt(compatibilityForm.yearTo)
-            : null,
-        },
+        { yearFrom, yearTo, trim: nextTrim },
       );
 
-      toast.success("Success", {
-        description: "Compatibility updated",
-      });
+      if ((saved as any).__trimSkipped && nextTrim) {
+        toast.success("Compatibility updated", {
+          description:
+            "Year range saved, but trim was skipped — run DB migration 053 on the API database.",
+        });
+      } else {
+        toast.success("Success", {
+          description: "Compatibility updated",
+        });
+      }
 
       await loadCompatibilities(editingProduct.id);
       setShowCompatibilityDialog(false);
       setEditingCompatibility(null);
-      setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
+      resetCompatibilityForm();
     } catch (error: any) {
       toast.error("Error", {
         description: error.message || "Failed to update compatibility",
@@ -1620,9 +2032,9 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {/* Row 3: Car Brand, Model, and Year Filters */}
-        <div className="flex gap-4">
-          <div className="flex-1 min-w-[200px] space-y-2">
+        {/* Row 3: Car Brand, Model, Trim, and Year Filters */}
+        <div className="flex gap-4 flex-wrap">
+          <div className="flex-1 min-w-[180px] space-y-2">
             <Label className="flex items-center gap-2">
               <Filter size={16} />
               Car Brand
@@ -1633,6 +2045,7 @@ export default function ProductsPage() {
                 setFilterCarBrand(value);
                 if (value === "any") {
                   setFilterCarModel("any");
+                  setFilterCarTrim("any");
                   setFilterCarYear("any");
                 }
               }}
@@ -1651,7 +2064,7 @@ export default function ProductsPage() {
             </Select>
           </div>
 
-          <div className="flex-1 min-w-[200px] space-y-2">
+          <div className="flex-1 min-w-[180px] space-y-2">
             <Label className="flex items-center gap-2">
               <Filter size={16} />
               Car Model
@@ -1660,6 +2073,7 @@ export default function ProductsPage() {
               value={filterCarModel}
               onValueChange={(value) => {
                 setFilterCarModel(value);
+                setFilterCarTrim("any");
                 if (value === "any") {
                   setFilterCarYear("any");
                 }
@@ -1686,7 +2100,51 @@ export default function ProductsPage() {
             </Select>
           </div>
 
-          <div className="flex-1 min-w-[200px] space-y-2">
+          <div className="flex-1 min-w-[180px] space-y-2">
+            <Label className="flex items-center gap-2">
+              <Filter size={16} />
+              Trim
+              {loadingFilterTrims && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              )}
+            </Label>
+            <Select
+              value={filterCarTrim}
+              onValueChange={setFilterCarTrim}
+              disabled={
+                filterCarBrand === "any" ||
+                filterCarModel === "any" ||
+                loadingFilterTrims
+              }
+            >
+              <SelectTrigger className="w-full">
+                {loadingFilterTrims ? (
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading trims...
+                  </span>
+                ) : (
+                  <SelectValue
+                    placeholder={
+                      filterCarBrand === "any" || filterCarModel === "any"
+                        ? "Select brand & model first"
+                        : "All Trims"
+                    }
+                  />
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">All Trims</SelectItem>
+                {carTrims.map((trim) => (
+                  <SelectItem key={trim} value={trim}>
+                    {trim}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex-1 min-w-[180px] space-y-2">
             <Label className="flex items-center gap-2">
               <Calendar size={16} />
               Car Year
@@ -1724,6 +2182,7 @@ export default function ProductsPage() {
             filterSubCategory !== "any" ||
             filterCarBrand !== "any" ||
             filterCarModel !== "any" ||
+            filterCarTrim !== "any" ||
             filterCarYear !== "any") && (
             <div className="flex items-end">
               <Button
@@ -1734,6 +2193,7 @@ export default function ProductsPage() {
                   setFilterSubCategory("any");
                   setFilterCarBrand("any");
                   setFilterCarModel("any");
+                  setFilterCarTrim("any");
                   setFilterCarYear("any");
                 }}
               >
@@ -2774,28 +3234,11 @@ export default function ProductsPage() {
                     variant="outline"
                     size="sm"
                     onClick={async () => {
-                      // Ensure availableCars is loaded
-                      if (availableCars.length === 0 && selectedStore) {
-                        try {
-                          const cars = await carService.listCars({
-                            store_id: selectedStore.id,
-                            limit: 1000,
-                          });
-                          setAvailableCars(cars || []);
-                        } catch (error) {
-                          console.error("Error fetching cars:", error);
-                          toast.error("Error", {
-                            description: "Failed to load available cars",
-                          });
-                          return;
-                        }
+                      if (availableCars.length === 0) {
+                        await loadAvailableCars();
                       }
                       setEditingCompatibility(null);
-                      setCompatibilityForm({
-                        carId: "",
-                        yearFrom: "",
-                        yearTo: "",
-                      });
+                      resetCompatibilityForm();
                       setShowCompatibilityDialog(true);
                     }}
                   >
@@ -2819,12 +3262,19 @@ export default function ProductsPage() {
                         <div className="flex-1">
                           <p className="font-medium">
                             {compat.carBrand} {compat.carModel}
+                            {compat.trim ? (
+                              <span className="text-muted-foreground font-normal">
+                                {" "}
+                                · {compat.trim}
+                              </span>
+                            ) : null}
                           </p>
                           <p className="text-sm text-muted-foreground">
                             {productCarCompatibilityService.formatYearRange(
                               compat.yearFrom,
                               compat.yearTo,
                             )}
+                            {!compat.trim ? " · All trims" : ""}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -2832,14 +3282,26 @@ export default function ProductsPage() {
                             type="button"
                             variant="ghost"
                             size="sm"
-                            onClick={() => {
+                            onClick={async () => {
+                              let cars = availableCars;
+                              if (cars.length === 0) {
+                                cars = await loadAvailableCars();
+                              }
                               setEditingCompatibility(compat);
                               setCompatibilityForm({
                                 carId: compat.carId,
+                                brand: compat.carBrand,
+                                model: compat.carModel,
                                 yearFrom: compat.yearFrom.toString(),
                                 yearTo: compat.yearTo?.toString() || "",
+                                trim: compat.trim || "",
                               });
                               setShowCompatibilityDialog(true);
+                              await loadTrimsForCompatibility(
+                                compat.carId,
+                                compat.yearFrom.toString(),
+                                cars,
+                              );
                             }}
                           >
                             <Edit size={16} />
@@ -2891,44 +3353,224 @@ export default function ProductsPage() {
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Car Make *</Label>
+                <Select
+                  value={compatibilityForm.brand}
+                  onValueChange={(brand) => {
+                    setCompatibilityForm({
+                      ...compatibilityForm,
+                      brand,
+                      model: "",
+                      carId: "",
+                      trim: "",
+                    });
+                    setAvailableTrims([]);
+                    setShowAddTrimField(false);
+                    setNewTrimInput("");
+                  }}
+                  disabled={!!editingCompatibility}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        availableCars.length === 0
+                          ? "No cars available"
+                          : "Select make..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {compatibilityBrands.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        No cars available. Please add cars to your store first.
+                      </div>
+                    ) : (
+                      compatibilityBrands.map((brand) => (
+                        <SelectItem key={brand} value={brand}>
+                          {brand}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Car Model *</Label>
+                <Select
+                  value={compatibilityForm.model}
+                  onValueChange={(model) => {
+                    const carId = resolveCarId(
+                      compatibilityForm.brand,
+                      model,
+                      compatibilityForm.trim,
+                    );
+                    setCompatibilityForm({
+                      ...compatibilityForm,
+                      model,
+                      carId,
+                      trim: "",
+                    });
+                    setShowAddTrimField(false);
+                    setNewTrimInput("");
+                    void loadTrimsForCompatibility(
+                      carId ||
+                        resolveCarId(compatibilityForm.brand, model, ""),
+                      compatibilityForm.yearFrom,
+                    );
+                  }}
+                  disabled={
+                    !!editingCompatibility || !compatibilityForm.brand
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        !compatibilityForm.brand
+                          ? "Select make first"
+                          : compatibilityModels.length === 0
+                            ? "No models available"
+                            : "Select model..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {compatibilityModels.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        No models for this make.
+                      </div>
+                    ) : (
+                      compatibilityModels.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {editingCompatibility && (
+              <p className="text-xs text-muted-foreground">
+                Make and model cannot be changed. Delete and create new
+                compatibility if needed.
+              </p>
+            )}
+
             <div className="space-y-2">
-              <Label>Car *</Label>
+              <Label>Trim (optional)</Label>
               <Select
-                value={compatibilityForm.carId}
-                onValueChange={(value) =>
-                  setCompatibilityForm({ ...compatibilityForm, carId: value })
+                value={compatibilityForm.trim || ALL_TRIMS_VALUE}
+                onValueChange={(value) => {
+                  const trim = value === ALL_TRIMS_VALUE ? "" : value;
+                  const carId = resolveCarId(
+                    compatibilityForm.brand,
+                    compatibilityForm.model,
+                    trim,
+                  );
+                  setCompatibilityForm({
+                    ...compatibilityForm,
+                    trim,
+                    carId:
+                      carId ||
+                      resolveCarId(
+                        compatibilityForm.brand,
+                        compatibilityForm.model,
+                        "",
+                      ),
+                  });
+                }}
+                disabled={
+                  !compatibilityForm.model || loadingTrims || showAddTrimField
                 }
-                disabled={!!editingCompatibility}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      availableCars.length === 0
-                        ? "No cars available"
-                        : "Select car..."
+                      !compatibilityForm.model
+                        ? "Select make and model first"
+                        : loadingTrims
+                          ? "Loading trims..."
+                          : "All trims"
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableCars.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-muted-foreground">
-                      No cars available. Please add cars to your store first.
-                    </div>
-                  ) : (
-                    availableCars.map((car) => (
-                      <SelectItem key={car.id} value={car.id}>
-                        {car.brand} {car.model}
-                      </SelectItem>
-                    ))
-                  )}
+                  <SelectItem value={ALL_TRIMS_VALUE}>All trims</SelectItem>
+                  {trimOptions.map((trim) => (
+                    <SelectItem key={trim} value={trim}>
+                      {trim}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {editingCompatibility && (
-                <p className="text-xs text-muted-foreground">
-                  Car cannot be changed. Delete and create new compatibility if
-                  needed.
-                </p>
+
+              {!showAddTrimField ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                  disabled={!compatibilityForm.model || loadingTrims}
+                  onClick={() => setShowAddTrimField(true)}
+                >
+                  <Plus size={14} className="mr-1.5" />
+                  Add new trim option
+                </Button>
+              ) : (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="compatibility-new-trim" className="text-xs">
+                      New trim name
+                    </Label>
+                    <Input
+                      id="compatibility-new-trim"
+                      autoFocus
+                      value={newTrimInput}
+                      onChange={(e) => setNewTrimInput(e.target.value)}
+                      placeholder="e.g., M Sport, LE, Limited"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddNewTrimOption();
+                        }
+                        if (e.key === "Escape") {
+                          setShowAddTrimField(false);
+                          setNewTrimInput("");
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleAddNewTrimOption}
+                      disabled={!newTrimInput.trim()}
+                    >
+                      Add & select
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setShowAddTrimField(false);
+                        setNewTrimInput("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               )}
+
+              <p className="text-xs text-muted-foreground">
+                Choose an existing trim, or add a new one. Leave as &quot;All
+                trims&quot; if this part fits every trim.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -2940,12 +3582,19 @@ export default function ProductsPage() {
                   max="2030"
                   placeholder="e.g., 2015"
                   value={compatibilityForm.yearFrom}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const yearFrom = e.target.value;
                     setCompatibilityForm({
                       ...compatibilityForm,
-                      yearFrom: e.target.value,
-                    })
-                  }
+                      yearFrom,
+                    });
+                    if (compatibilityForm.carId && yearFrom) {
+                      void loadTrimsForCompatibility(
+                        compatibilityForm.carId,
+                        yearFrom,
+                      );
+                    }
+                  }}
                 />
               </div>
 
@@ -2977,7 +3626,7 @@ export default function ProductsPage() {
               onClick={() => {
                 setShowCompatibilityDialog(false);
                 setEditingCompatibility(null);
-                setCompatibilityForm({ carId: "", yearFrom: "", yearTo: "" });
+                resetCompatibilityForm();
               }}
             >
               Cancel
@@ -2988,7 +3637,11 @@ export default function ProductsPage() {
                   ? handleUpdateCompatibility
                   : handleAddCompatibility
               }
-              disabled={!compatibilityForm.carId || !compatibilityForm.yearFrom}
+              disabled={
+                !compatibilityForm.brand ||
+                !compatibilityForm.model ||
+                !compatibilityForm.yearFrom
+              }
             >
               {editingCompatibility ? "Update" : "Add"} Compatibility
             </Button>

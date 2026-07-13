@@ -4,7 +4,7 @@ export interface Car {
     id: string;
     brand: string;
     model: string;
-    trim?: string;                        // NEW FIELD
+    trim?: string | null;                  // NEW FIELD
     store_id?: string;
     yearFrom?: number | null;
     yearTo?: number | null;
@@ -89,8 +89,8 @@ class CarService {
   }
 
   /**
-   * NEW: Get all trims for a specific car
-   * GET /api/stores/{storeId}/cars/trims?brand=X&model=Y&year=Z
+   * Get unique trims for brand + model (+ year)
+   * GET /api/cars/trims?store_id=&brand=&model=&year=
    */
   async getTrims(
     storeId: string,
@@ -99,17 +99,29 @@ class CarService {
     year: number
   ): Promise<string[]> {
     try {
-      const response = await apiClient.get<string[]>(`/stores/${storeId}/cars/trims`, {
-        params: { brand, model, year }
+      // apiClient.get(url, params) already wraps as axios `{ params }` — pass flat query keys.
+      const response = await apiClient.get<any>('/cars/trims', {
+        store_id: storeId,
+        brand,
+        model,
+        year,
       });
-      return response.data.data || [];
+      const data = response.data?.data;
+      if (Array.isArray(data)) {
+        return data.filter((t): t is string => typeof t === 'string' && t.length > 0);
+      }
+      if (Array.isArray(data?.trims)) {
+        return data.trims.filter((t: unknown): t is string => typeof t === 'string' && t.length > 0);
+      }
+      return [];
     } catch (error: any) {
-      console.error('Get trims error:', error);
-      // Return empty array if no trims found (not an error condition)
-      if (error.response?.status === 404) {
+      // Endpoint or DB column may not be ready yet — callers fall back to local options.
+      const status = error.response?.status;
+      if (status === 404 || status === 500) {
         return [];
       }
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch trims');
+      console.warn('Get trims error:', error.response?.data?.error?.message || error.message);
+      return [];
     }
   }
 
