@@ -4,6 +4,7 @@ export interface Car {
     id: string;
     brand: string;
     model: string;
+    trim?: string;                        // NEW FIELD
     store_id?: string;
     yearFrom?: number | null;
     yearTo?: number | null;
@@ -84,6 +85,31 @@ class CarService {
     } catch (error: any) {
       console.error('Get car error:', error);
       throw new Error(error.response?.data?.error?.message || 'Failed to fetch car details');
+    }
+  }
+
+  /**
+   * NEW: Get all trims for a specific car
+   * GET /api/stores/{storeId}/cars/trims?brand=X&model=Y&year=Z
+   */
+  async getTrims(
+    storeId: string,
+    brand: string,
+    model: string,
+    year: number
+  ): Promise<string[]> {
+    try {
+      const response = await apiClient.get<string[]>(`/stores/${storeId}/cars/trims`, {
+        params: { brand, model, year }
+      });
+      return response.data.data || [];
+    } catch (error: any) {
+      console.error('Get trims error:', error);
+      // Return empty array if no trims found (not an error condition)
+      if (error.response?.status === 404) {
+        return [];
+      }
+      throw new Error(error.response?.data?.error?.message || 'Failed to fetch trims');
     }
   }
 
