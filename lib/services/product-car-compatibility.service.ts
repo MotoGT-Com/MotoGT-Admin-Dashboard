@@ -179,11 +179,30 @@ class ProductCarCompatibilityService {
         ? raw
         : raw?.compatibilities || [];
 
+      // Fast path: API usually includes car_brand/car_model — avoid N+1 car fetches.
+      const needsCarLookup = items.some((item) => !item.car_brand || !item.car_model);
+      if (!needsCarLookup) {
+        return items.map((item) => ({
+          id: item.id,
+          productId: item.product_id,
+          carId: item.car_id,
+          carBrand: item.car_brand || 'Unknown',
+          carModel: item.car_model || 'Unknown',
+          yearFrom: item.year_from,
+          yearTo: item.year_to,
+          trim:
+            item.trim !== undefined && item.trim !== null
+              ? String(item.trim).trim() || null
+              : null,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+        }));
+      }
+
       const compatibilities = await Promise.all(
         items.map(async (item) => {
           let carBrand = item.car_brand || 'Unknown';
           let carModel = item.car_model || 'Unknown';
-          // Per-product trim only — never fall back to cars.trim (shared car row).
           const compatibilityTrim: string | null =
             item.trim !== undefined && item.trim !== null
               ? String(item.trim).trim() || null
@@ -286,6 +305,82 @@ class ProductCarCompatibilityService {
 
     const response = await apiClient.get<{ data: CompatibleCar[] }>(url);
     return response.data.data;
+  }
+
+  /**
+   * List trims (compatibility rows) for a product + car.
+   * GET /api/admin/products/:productId/trims?car_id=
+   * Falls back to listCompatibilities filtered by carId.
+   */
+  async listTrimsForCar(
+    productId: string,
+    carId: string,
+  ): Promise<ProductCarCompatibility[]> {
+    try {
+      const response = await apiClient.get<any>(
+        `/admin/products/${productId}/trims`,
+        { car_id: carId },
+      );
+
+      const raw = response.data.data;
+      const items: ProductCarCompatibilityResponse[] = Array.isArray(raw)
+        ? raw
+        : raw?.trims || raw?.compatibilities || [];
+
+      return items.map((item) => this.mapResponseToCompatibility(item));
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 404 || status === 501 || !error?.response) {
+        const all = await this.listCompatibilities(productId);
+        return all.filter((c) => c.carId === carId);
+      }
+      throw new Error(this.getErrorMessage(error, 'Failed to load trims'));
+    }
+  }
+
+  /**
+   * Bulk-add trims for a product.
+   * POST /api/admin/products/:productId/trims/bulk
+   * Falls back to sequential addCompatibility calls.
+   */
+  async bulkAddTrims(
+    productId: string,
+    items: AddCompatibilityRequest[],
+  ): Promise<ProductCarCompatibility[]> {
+    if (items.length === 0) return [];
+
+    try {
+      const response = await apiClient.post<any>(
+        `/admin/products/${productId}/trims/bulk`,
+        {
+          trims: items.map((item) => ({
+            car_id: item.carId,
+            year_from: item.yearFrom,
+            year_to: item.yearTo,
+            trim: item.trim === '' || item.trim === undefined ? null : item.trim,
+          })),
+        },
+      );
+
+      const raw = response.data.data;
+      const created: ProductCarCompatibilityResponse[] = Array.isArray(raw)
+        ? raw
+        : raw?.trims || raw?.compatibilities || [];
+
+      return created.map((item, index) =>
+        this.mapResponseToCompatibility(item, items[index]?.trim ?? null),
+      );
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 404 || status === 501 || status === 405) {
+        const results: ProductCarCompatibility[] = [];
+        for (const item of items) {
+          results.push(await this.addCompatibility(productId, item));
+        }
+        return results;
+      }
+      throw new Error(this.getErrorMessage(error, 'Failed to bulk-add trims'));
+    }
   }
 
   /**

@@ -16,6 +16,7 @@ import {
   FileText,
   Zap,
   TicketIcon,
+  ListTree,
   Settings,
   ChevronDown,
   Menu,
@@ -77,6 +78,11 @@ const navigationGroups: NavGroup[] = [
         href: "/dashboard/products",
       },
       { icon: <Car size={20} />, label: "Cars", href: "/dashboard/cars" },
+      {
+        icon: <ListTree size={20} />,
+        label: "Trims",
+        href: "/dashboard/trims",
+      },
     ],
   },
   {
