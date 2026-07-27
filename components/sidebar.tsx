@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -148,18 +149,23 @@ export function Sidebar() {
         }`}
       >
         <div className="flex flex-col h-full overflow-y-auto">
-          <div className="p-6 border-b border-sidebar-border flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-bold text-sm">M</span>
-            </div>
-            {!isCollapsed && (
-              <div className="flex-1 min-w-0">
-                <h1 className="font-bold text-sidebar-foreground text-sm">
-                  MotoGT Admin
-                </h1>
-                <p className="text-xs text-muted-foreground">Dashboard</p>
-              </div>
-            )}
+          <div
+            className={`border-b border-sidebar-border flex items-center ${
+              isCollapsed ? "justify-center p-4" : "px-5 py-5"
+            }`}
+          >
+            <Image
+              src="/motogt-logo.svg"
+              alt="MotoGT"
+              width={646}
+              height={94}
+              priority
+              className={
+                isCollapsed
+                  ? "h-6 w-6 object-contain object-left"
+                  : "h-6 w-auto max-w-full"
+              }
+            />
           </div>
 
           {/* Navigation */}
