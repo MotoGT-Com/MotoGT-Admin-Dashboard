@@ -327,46 +327,64 @@ export default function ProductsPage() {
 
         // Fetch car brands for filters
         if (fetchedStores.length > 0 && fetchedLanguages.length > 0) {
-          const cars = await carService.listCars({
-            store_id: fetchedStores[0].id,
-            limit: 1000,
-          });
-          const brands = [...new Set(cars.map((car) => car.brand))].sort();
-          setCarBrands(brands);
+          try {
+            const cars = await carService.listCars({
+              store_id: fetchedStores[0].id,
+              limit: 1000,
+            });
+            const brands = [...new Set(cars.map((car) => car.brand))].sort();
+            setCarBrands(brands);
+          } catch (error) {
+            console.error("Failed to fetch cars for filters:", error);
+          }
 
-          // Fetch product types
-          const fetchedProductTypes = await productTypeService.getAll(
-            fetchedLanguages[0].id,
-          );
-          setProductTypes(fetchedProductTypes);
+          try {
+            // Fetch product types
+            const fetchedProductTypes = await productTypeService.getAll(
+              fetchedLanguages[0].id,
+            );
+            setProductTypes(fetchedProductTypes);
+          } catch (error) {
+            console.error("Failed to fetch product types:", error);
+            toast.error("Error", {
+              description: "Failed to load product types",
+            });
+          }
 
-          // Fetch categories
-          const fetchedCategories = await categoryService.listCategories({
-            storeId: fetchedStores[0].id,
-            languageId: fetchedLanguages[0].id,
-            isActive: true,
-            includeSubcategories: true,
-            limit: 100,
-          });
+          try {
+            // Fetch categories
+            const fetchedCategories = await categoryService.listCategories({
+              storeId: fetchedStores[0].id,
+              languageId: fetchedLanguages[0].id,
+              isActive: true,
+              includeSubcategories: true,
+              limit: 100,
+            });
 
-          // Add name field to categories and subcategories for easy display
-          const categoriesWithNames = fetchedCategories.map((cat) => ({
-            ...cat,
-            name: categoryService.getCategoryName(
-              cat,
-              fetchedLanguages[0].code,
-            ),
-            // Also add names to subcategories
-            subcategories: cat.subcategories?.map((sub) => ({
-              ...sub,
+            // Add name field to categories and subcategories for easy display
+            const categoriesWithNames = fetchedCategories.map((cat) => ({
+              ...cat,
               name: categoryService.getCategoryName(
-                sub,
+                cat,
                 fetchedLanguages[0].code,
               ),
-            })),
-          }));
+              // Also add names to subcategories
+              subcategories: cat.subcategories?.map((sub) => ({
+                ...sub,
+                name: categoryService.getCategoryName(
+                  sub,
+                  fetchedLanguages[0].code,
+                ),
+              })),
+            }));
 
-          setCategories(categoriesWithNames);
+            setCategories(categoriesWithNames);
+          } catch (error) {
+            console.error("Failed to fetch categories:", error);
+            toast.error("Error", {
+              description: "Failed to load categories",
+            });
+          }
         }
       } catch (error: any) {
         console.error("Failed to fetch stores/languages:", error);
