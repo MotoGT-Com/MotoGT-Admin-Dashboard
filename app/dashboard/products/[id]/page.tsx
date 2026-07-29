@@ -128,7 +128,18 @@ export default function ProductDetailPage() {
     brand?: string;
     model?: string;
   }) => {
-    setManagerInitialCar(car || null);
+    if (car) {
+      setManagerInitialCar(car);
+    } else if (compatibilitiesByCar.length > 0) {
+      const group = compatibilitiesByCar[0];
+      setManagerInitialCar({
+        carId: group.carId,
+        brand: group.carBrand,
+        model: group.carModel,
+      });
+    } else {
+      setManagerInitialCar(null);
+    }
     setShowCompatibilityDialog(true);
   };
 
@@ -1373,7 +1384,7 @@ export default function ProductDetailPage() {
                 <div>
                   <CardTitle>Car Compatibility</CardTitle>
                   <CardDescription>
-                    Compatible vehicles with trims and year ranges
+                    One vehicle per product, with trims and year ranges
                   </CardDescription>
                 </div>
                 <Button
@@ -1394,8 +1405,8 @@ export default function ProductDetailPage() {
             <CardContent>
               {compatibilitiesByCar.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No car compatibilities added yet. Click &quot;Manage
-                  Trims&quot; to begin.
+                  No vehicle linked yet. Click &quot;Manage Trims&quot; to assign
+                  one make and model, then add trims.
                 </p>
               ) : (
                 <div className="space-y-4">

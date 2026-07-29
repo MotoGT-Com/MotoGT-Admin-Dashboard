@@ -217,7 +217,18 @@ export default function ProductsPage() {
     brand?: string;
     model?: string;
   }) => {
-    setManagerInitialCar(car || null);
+    if (car) {
+      setManagerInitialCar(car);
+    } else if (compatibilities.length > 0) {
+      const first = compatibilities[0];
+      setManagerInitialCar({
+        carId: first.carId,
+        brand: first.carBrand,
+        model: first.carModel,
+      });
+    } else {
+      setManagerInitialCar(null);
+    }
     setShowCompatibilityDialog(true);
   };
 
@@ -1226,7 +1237,7 @@ export default function ProductsPage() {
       selectedCarCompatibility.length === 0
     ) {
       toast.error("Validation Error", {
-        description: "Please select at least one compatible car for car parts",
+        description: "Please select the compatible car for car parts",
       });
       return;
     }
@@ -1299,7 +1310,7 @@ export default function ProductsPage() {
         carCompatibility:
           productTypes.find((pt) => pt.id === formData.productType)?.code ===
             "car_parts" && selectedCarCompatibility.length > 0
-            ? selectedCarCompatibility.map((compat) => ({
+            ? selectedCarCompatibility.slice(0, 1).map((compat) => ({
                 carId: compat.carId,
                 yearFrom: compat.yearFrom,
                 yearTo: compat.yearTo,
@@ -2261,17 +2272,18 @@ export default function ProductsPage() {
               !editingProduct && (
                 <div className="space-y-3 border rounded-lg p-4 bg-accent/5">
                   <div>
-                    <Label>Compatible Cars *</Label>
+                    <Label>Compatible Car *</Label>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Add car models and specify the compatible year ranges for
-                      this product
+                      Each product belongs to one make and model. Set the year
+                      range for this vehicle (add trims after creating the
+                      product).
                     </p>
                   </div>
 
-                  {/* Selected Car Compatibilities */}
+                  {/* Selected Car Compatibility */}
                   {selectedCarCompatibility.length > 0 && (
                     <div className="space-y-2">
-                      {selectedCarCompatibility.map((compat, index) => {
+                      {selectedCarCompatibility.slice(0, 1).map((compat, index) => {
                         const car = availableCars.find(
                           (c) => c.id === compat.carId,
                         );
@@ -2332,11 +2344,7 @@ export default function ProductsPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => {
-                                setSelectedCarCompatibility(
-                                  selectedCarCompatibility.filter(
-                                    (_, i) => i !== index,
-                                  ),
-                                );
+                                setSelectedCarCompatibility([]);
                               }}
                             >
                               <X size={16} />
@@ -2347,52 +2355,41 @@ export default function ProductsPage() {
                     </div>
                   )}
 
-                  {/* Add Car Button and Dropdown */}
-                  <div className="relative">
-                    <Select
-                      value=""
-                      onValueChange={(carId) => {
-                        if (
-                          !selectedCarCompatibility.some(
-                            (c) => c.carId === carId,
-                          )
-                        ) {
+                  {/* Add / replace single car */}
+                  {selectedCarCompatibility.length === 0 ? (
+                    <div className="relative">
+                      <Select
+                        value=""
+                        onValueChange={(carId) => {
                           setSelectedCarCompatibility([
-                            ...selectedCarCompatibility,
                             { carId, yearFrom: undefined, yearTo: undefined },
                           ]);
-                        }
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="+ Add compatible car" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableCars.length === 0 ? (
-                          <div className="p-2 text-center text-muted-foreground text-sm">
-                            No cars available
-                          </div>
-                        ) : (
-                          availableCars
-                            .filter(
-                              (car) =>
-                                !selectedCarCompatibility.some(
-                                  (c) => c.carId === car.id,
-                                ),
-                            )
-                            .map((car) => (
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="+ Select compatible car" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableCars.length === 0 ? (
+                            <div className="p-2 text-center text-muted-foreground text-sm">
+                              No cars available
+                            </div>
+                          ) : (
+                            availableCars.map((car) => (
                               <SelectItem key={car.id} value={car.id}>
                                 {car.brand} {car.model}
                               </SelectItem>
                             ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
 
                   {selectedCarCompatibility.length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      No cars selected. Please add at least one compatible car.
+                      No car selected. Please select the compatible car for this
+                      product.
                     </p>
                   )}
                 </div>
@@ -2937,7 +2934,7 @@ export default function ProductsPage() {
                       Car Compatibility
                     </Label>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Manage trims and year ranges per vehicle
+                      One vehicle per product — manage trims and year ranges
                     </p>
                   </div>
                   <Button
@@ -2958,8 +2955,8 @@ export default function ProductsPage() {
 
                 {compatibilities.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No car compatibilities added yet. Click &quot;Manage
-                    Trims&quot; to begin.
+                    No vehicle linked yet. Click &quot;Manage Trims&quot; to
+                    assign one make and model, then add trims.
                   </p>
                 ) : (
                   <div className="space-y-3 max-h-60 overflow-y-auto">

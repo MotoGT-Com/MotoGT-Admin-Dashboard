@@ -72,6 +72,8 @@ export function TrimAssignmentFormDialog({
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
   const [saving, setSaving] = useState(false);
+  const [carLocked, setCarLocked] = useState(false);
+  const [resolvingProductCar, setResolvingProductCar] = useState(false);
   const productMenuRef = useRef<HTMLDivElement>(null);
 
   const brands = useMemo(
@@ -119,6 +121,7 @@ export function TrimAssignmentFormDialog({
       setTrim(editingRow.trim || "");
       setYearFrom(String(editingRow.yearFrom));
       setYearTo(editingRow.yearTo != null ? String(editingRow.yearTo) : "");
+      setCarLocked(true);
     } else {
       setProductId("");
       setProductQuery("");
@@ -132,8 +135,52 @@ export function TrimAssignmentFormDialog({
       setTrim("");
       setYearFrom("");
       setYearTo("");
+      setCarLocked(false);
     }
   }, [open, mode, editingRow, initialBrand, initialModel, brands]);
+
+  /** When a product is chosen, lock make/model to its existing vehicle if any */
+  useEffect(() => {
+    if (!open || mode !== "add" || !productId) return;
+
+    let cancelled = false;
+
+    const resolve = async () => {
+      // Prefer in-memory sibling rows first (same make filter may miss other cars)
+      const fromSiblings = siblingRows.find((r) => r.productId === productId);
+      if (fromSiblings) {
+        if (!cancelled) {
+          setBrand(fromSiblings.carBrand);
+          setModel(fromSiblings.carModel);
+          setCarLocked(true);
+        }
+        return;
+      }
+
+      setResolvingProductCar(true);
+      try {
+        const existing =
+          await productCarCompatibilityService.listCompatibilities(productId);
+        if (cancelled) return;
+        if (existing.length > 0) {
+          setBrand(existing[0].carBrand);
+          setModel(existing[0].carModel);
+          setCarLocked(true);
+        } else {
+          setCarLocked(false);
+        }
+      } catch {
+        if (!cancelled) setCarLocked(false);
+      } finally {
+        if (!cancelled) setResolvingProductCar(false);
+      }
+    };
+
+    void resolve();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, productId, siblingRows]);
 
   useEffect(() => {
     if (!productMenuOpen) return;
@@ -256,7 +303,8 @@ export function TrimAssignmentFormDialog({
             {mode === "edit" ? "Edit trim assignment" : "Add trim assignment"}
           </DialogTitle>
           <DialogDescription>
-            Trim name is required. Year To can be empty for ongoing ranges.
+            Each product belongs to one make and model. Trim name is required.
+            Year To can be empty for ongoing ranges.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -310,6 +358,7 @@ export function TrimAssignmentFormDialog({
                                   setProductId(p.id);
                                   setProductQuery("");
                                   setProductMenuOpen(false);
+                                  setCarLocked(false);
                                 }}
                               >
                                 <Check
@@ -330,48 +379,61 @@ export function TrimAssignmentFormDialog({
                   ) : null}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Make</Label>
-                  <Select
-                    value={brand || undefined}
-                    onValueChange={(v) => {
-                      setBrand(v);
-                      setModel("");
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Make" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {brands.map((b) => (
-                        <SelectItem key={b} value={b}>
-                          {b}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              {carLocked && brand && model ? (
+                <div className="rounded-md border bg-muted/40 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Vehicle</p>
+                  <p className="text-sm font-medium">
+                    {brand} {model}
+                    {resolvingProductCar ? (
+                      <Loader2 className="inline ml-2 h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Model</Label>
-                  <Select
-                    value={model || undefined}
-                    onValueChange={setModel}
-                    disabled={!brand}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models.map((m) => (
-                        <SelectItem key={m} value={m}>
-                          {m}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Make</Label>
+                    <Select
+                      value={brand || undefined}
+                      onValueChange={(v) => {
+                        setBrand(v);
+                        setModel("");
+                      }}
+                      disabled={resolvingProductCar}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Make" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {brands.map((b) => (
+                          <SelectItem key={b} value={b}>
+                            {b}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Model</Label>
+                    <Select
+                      value={model || undefined}
+                      onValueChange={setModel}
+                      disabled={!brand || resolvingProductCar}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {models.map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {m}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           ) : editingRow ? (
             <p className="text-sm text-muted-foreground">

@@ -163,13 +163,13 @@ export function ProductCarTrimsManager({
 
   const [deleteTarget, setDeleteTarget] = useState<TrimDraft | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  /** Once the product has a car (or one is chosen), make/model cannot change */
+  const [carLocked, setCarLocked] = useState(false);
 
   /** Only initialize session when dialog transitions closed → open */
   const wasOpenRef = useRef(false);
   const carIdRef = useRef("");
   carIdRef.current = carId;
-
-  const carLocked = Boolean(initialCarId || (initialBrand && initialModel));
 
   const brands = useMemo(
     () =>
@@ -221,6 +221,7 @@ export function ProductCarTrimsManager({
     setTrimForm({ trim: "", yearFrom: "", yearTo: "" });
     setDeleteTarget(null);
     setDiscardConfirmOpen(false);
+    setCarLocked(false);
   }, []);
 
   const loadTrims = useCallback(
@@ -263,33 +264,89 @@ export function ProductCarTrimsManager({
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
 
-    const nextBrand = initialBrand || "";
-    const nextModel = initialModel || "";
-    let nextCarId = initialCarId || "";
+    let cancelled = false;
 
-    if (!nextCarId && nextBrand && nextModel) {
-      nextCarId = resolveCarId(nextBrand, nextModel);
-    }
+    const init = async () => {
+      setLoading(true);
+      try {
+        const existing =
+          await productCarCompatibilityService.listCompatibilities(productId);
+        if (cancelled) return;
 
-    if (nextCarId && (!nextBrand || !nextModel)) {
-      const car = availableCars.find((c) => c.id === nextCarId);
-      if (car) {
-        setBrand(car.brand);
-        setModel(car.model);
+        // One car per product: lock to whatever car already has fitment rows
+        const byCar = new Map<
+          string,
+          { brand: string; model: string }
+        >();
+        for (const row of existing) {
+          if (!byCar.has(row.carId)) {
+            byCar.set(row.carId, {
+              brand: row.carBrand,
+              model: row.carModel,
+            });
+          }
+        }
+
+        if (byCar.size > 0) {
+          const chosenId =
+            initialCarId && byCar.has(initialCarId)
+              ? initialCarId
+              : [...byCar.keys()][0];
+          const meta = byCar.get(chosenId)!;
+          setBrand(meta.brand);
+          setModel(meta.model);
+          setCarId(chosenId);
+          setCarLocked(true);
+          carIdRef.current = chosenId;
+          await loadTrims(chosenId);
+          return;
+        }
+
+        // First assignment — optional prefill from caller
+        let nextBrand = initialBrand || "";
+        let nextModel = initialModel || "";
+        let nextCarId = initialCarId || "";
+
+        if (!nextCarId && nextBrand && nextModel) {
+          nextCarId = resolveCarId(nextBrand, nextModel);
+        }
+
+        if (nextCarId && (!nextBrand || !nextModel)) {
+          const car = availableCars.find((c) => c.id === nextCarId);
+          if (car) {
+            nextBrand = car.brand;
+            nextModel = car.model;
+          }
+        }
+
+        setBrand(nextBrand);
+        setModel(nextModel);
         setCarId(nextCarId);
-        void loadTrims(nextCarId);
-        return;
+        // Prefill from context locks immediately (e.g. Trims page filters)
+        setCarLocked(
+          Boolean(nextCarId && (initialCarId || (initialBrand && initialModel))),
+        );
+        if (nextCarId) {
+          carIdRef.current = nextCarId;
+          await loadTrims(nextCarId);
+        } else {
+          setDrafts([]);
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          toast.error("Error", {
+            description: error?.message || "Failed to load car fitment",
+          });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }
+    };
 
-    setBrand(nextBrand);
-    setModel(nextModel);
-    setCarId(nextCarId);
-    if (nextCarId) {
-      void loadTrims(nextCarId);
-    } else {
-      setDrafts([]);
-    }
+    void init();
+    return () => {
+      cancelled = true;
+    };
     // intentionally omit availableCars / resolveCarId from deps — snapshot at open
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialCarId, initialBrand, initialModel, productId, loadTrims]);
@@ -324,6 +381,8 @@ export function ProductCarTrimsManager({
       return;
     }
     setCarId(nextCarId);
+    // Assigning make/model is permanent for this product — lock selectors
+    setCarLocked(true);
     await loadTrims(nextCarId);
   };
 
@@ -366,12 +425,19 @@ export function ProductCarTrimsManager({
   };
 
   const submitTrimForm = () => {
+    const trim = normalizeTrim(trimForm.trim);
+    if (!trim) {
+      toast.error("Validation Error", {
+        description: "Trim name is required",
+      });
+      return;
+    }
+
     const years = validateYearRange(trimForm.yearFrom, trimForm.yearTo);
     if (typeof years === "string") {
       toast.error("Validation Error", { description: years });
       return;
     }
-    const trim = normalizeTrim(trimForm.trim);
     if (
       hasDuplicate(trim, years.yearFrom, years.yearTo, editingLocalId || undefined)
     ) {
@@ -496,18 +562,19 @@ export function ProductCarTrimsManager({
       }
 
       if (toCreate.length > 0) {
-        try {
-          await productCarCompatibilityService.bulkAddTrims(
-            productId,
-            toCreate.map((row) => ({
+        for (const row of toCreate) {
+          try {
+            await productCarCompatibilityService.addCompatibility(productId, {
               carId,
               yearFrom: row.yearFrom,
               yearTo: row.yearTo,
               trim: row.trim,
-            })),
-          );
-        } catch (error: any) {
-          errors.push(`Add trims: ${error?.message || "failed"}`);
+            });
+          } catch (error: any) {
+            errors.push(
+              `Add ${row.trim || "All trims"}: ${error?.message || "failed"}`,
+            );
+          }
         }
       }
 
@@ -559,54 +626,65 @@ export function ProductCarTrimsManager({
           <DialogHeader>
             <DialogTitle>Manage Car Trims</DialogTitle>
             <DialogDescription>
-              Add multiple trims with their own year ranges for a product–car
-              pairing. Empty trim means all trims.
+              Each product belongs to one make and model. Add trims and year
+              ranges for that vehicle only.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Make</Label>
-                <Select
-                  value={brand || undefined}
-                  onValueChange={handleBrandChange}
-                  disabled={carLocked || busy}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select make" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {brands.map((b) => (
-                      <SelectItem key={b} value={b}>
-                        {b}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {carLocked && brand && model ? (
+              <div className="rounded-md border bg-muted/40 px-3 py-2">
+                <p className="text-xs text-muted-foreground">Vehicle</p>
+                <p className="text-sm font-medium">
+                  {brand} {model}
+                </p>
               </div>
-              <div className="space-y-2">
-                <Label>Model</Label>
-                <Select
-                  value={model || undefined}
-                  onValueChange={handleModelChange}
-                  disabled={carLocked || !brand || busy}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={brand ? "Select model" : "Select make first"}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {models.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Make</Label>
+                  <Select
+                    value={brand || undefined}
+                    onValueChange={handleBrandChange}
+                    disabled={busy}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select make" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {brands.map((b) => (
+                        <SelectItem key={b} value={b}>
+                          {b}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Model</Label>
+                  <Select
+                    value={model || undefined}
+                    onValueChange={handleModelChange}
+                    disabled={!brand || busy}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          brand ? "Select model" : "Select make first"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {models.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {m}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            </div>
+            )}
 
             {carId ? (
               <div className="space-y-3">
@@ -798,20 +876,22 @@ export function ProductCarTrimsManager({
               {editingLocalId ? "Edit Trim" : "Add Trim"}
             </DialogTitle>
             <DialogDescription>
-              Leave trim empty for all trims. Year To can be empty for ongoing
-              ranges.
+              Trim name is required. Year To can be empty for ongoing ranges.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="trim-name">Trim name (optional)</Label>
+              <Label htmlFor="trim-name">
+                Trim name <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="trim-name"
                 value={trimForm.trim}
                 onChange={(e) =>
                   setTrimForm((f) => ({ ...f, trim: e.target.value }))
                 }
-                placeholder="e.g. LE, Base, M Sport — empty = All trims"
+                placeholder="e.g. LE, Base, M Sport"
+                required
               />
             </div>
             <div className="grid grid-cols-2 gap-3">

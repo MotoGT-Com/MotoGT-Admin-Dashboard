@@ -141,11 +141,9 @@ class ProductCarCompatibilityService {
       );
       return this.mapResponseToCompatibility(response.data.data, data.trim);
     } catch (error: any) {
-      // DB may not have migration 053 yet — save years without trim.
-      if (
-        data.trim !== undefined &&
-        (this.isTrimSchemaError(error) || error?.response?.status === 500)
-      ) {
+      // Only retry without trim when the DB literally lacks the trim column.
+      // Never strip trim on unique/validation/500 — that collides same year ranges.
+      if (data.trim !== undefined && this.isTrimSchemaError(error)) {
         try {
           const response = await apiClient.post<{ data: ProductCarCompatibilityResponse }>(
             `/admin/products/${productId}/compatibility`,
