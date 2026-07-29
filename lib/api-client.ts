@@ -64,9 +64,18 @@ class ApiClient {
       },
       async (error: AxiosError<ApiError>) => {
         const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+        const requestUrl = originalRequest?.url || '';
+        const isAuthEndpoint =
+          requestUrl.includes('/admin/login') ||
+          requestUrl.includes('/auth/login') ||
+          requestUrl.includes('/auth/refresh');
 
-        // Handle 401 Unauthorized - Token expired
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        // Handle 401 Unauthorized - Token expired (skip login/refresh endpoints)
+        if (
+          error.response?.status === 401 &&
+          !originalRequest._retry &&
+          !isAuthEndpoint
+        ) {
           originalRequest._retry = true;
 
           try {

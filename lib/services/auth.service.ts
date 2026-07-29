@@ -46,14 +46,19 @@ class AuthService {
 
       return response.data.data;
     } catch (error: any) {
-      // Handle specific error cases
-      if (error.response?.status === 401) {
-        throw new Error('Invalid email or password');
-      } else if (error.response?.status === 400) {
-        throw new Error(error.response.data?.error?.message || 'Invalid credentials');
-      } else {
-        throw new Error('An error occurred during login. Please try again.');
+      const apiMessage = error.response?.data?.error?.message;
+      const status = error.response?.status;
+
+      if (status === 401 || status === 404) {
+        throw new Error(apiMessage || 'Invalid email or password');
       }
+      if (status === 400) {
+        throw new Error(apiMessage || 'Invalid credentials');
+      }
+      if (error.message && !error.response) {
+        throw new Error(error.message);
+      }
+      throw new Error(apiMessage || 'An error occurred during login. Please try again.');
     }
   }
 
