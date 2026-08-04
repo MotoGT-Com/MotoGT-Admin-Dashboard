@@ -14,6 +14,14 @@ import {
 import { useState, useEffect } from "react"
 import { useSidebar } from "./sidebar-context"
 import { useAuth } from "@/lib/context/auth-context"
+import { useMockRole } from "@/lib/context/mock-role-context"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import Link from "next/link"
 
 type Notification = {
@@ -30,6 +38,7 @@ export function Header() {
   const [mounted, setMounted] = useState(false)
   const { isCollapsed, toggleCollapse } = useSidebar()
   const { user, logout } = useAuth()
+  const { role, setRole } = useMockRole()
 
   const [notifications, setNotifications] = useState<Notification[]>([
     {
@@ -110,6 +119,20 @@ export function Header() {
 
         {/* Right side controls */}
         <div className="flex items-center gap-4 ml-auto">
+          {/* Dev-only mock role switcher — proves nav scoping without real auth/permissions */}
+          <div className="hidden sm:flex items-center gap-2 rounded-md border border-dashed border-border px-2 py-1">
+            <span className="text-xs text-muted-foreground">Preview as</span>
+            <Select value={role} onValueChange={(v) => setRole(v as typeof role)}>
+              <SelectTrigger className="h-7 w-[140px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="store_staff">Store Staff</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useSidebar } from "./sidebar-context";
+import { useMockRole } from "@/lib/context/mock-role-context";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -29,6 +30,8 @@ import {
   ScrollText,
   Warehouse,
   Percent,
+  ShoppingBag,
+  Contact,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -98,6 +101,21 @@ const navigationGroups: NavGroup[] = [
       // { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
     ],
   },
+  {
+    label: "In-Store",
+    items: [
+      {
+        icon: <ShoppingBag size={20} />,
+        label: "New Sale",
+        href: "/dashboard/in-store",
+      },
+      {
+        icon: <Contact size={20} />,
+        label: "Customers",
+        href: "/dashboard/in-store/customers",
+      },
+    ],
+  },
   // {
   //   label: "Content Management",
   //   items: [
@@ -124,9 +142,16 @@ const navigationGroups: NavGroup[] = [
 export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const { isCollapsed } = useSidebar();
+  const { role } = useMockRole();
   const pathname = usePathname();
 
   const isActive = (href: string) => pathname === href;
+
+  // Mock scoping: store_staff only needs order entry + customer search.
+  const visibleGroups =
+    role === "store_staff"
+      ? navigationGroups.filter((group) => group.label === "In-Store")
+      : navigationGroups;
 
   return (
     <>
@@ -170,7 +195,7 @@ export function Sidebar() {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-6">
-            {navigationGroups.map((group) => (
+            {visibleGroups.map((group) => (
               <div key={group.label}>
                 {!isCollapsed && (
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 px-3">
