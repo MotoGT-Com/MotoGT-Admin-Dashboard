@@ -175,8 +175,10 @@ export function Sidebar() {
       >
         <div className="flex flex-col h-full overflow-y-auto">
           <div
-            className={`border-b border-sidebar-border flex items-center ${
-              isCollapsed ? "justify-center p-4" : "px-5 py-5"
+            className={`border-b border-sidebar-border flex ${
+              isCollapsed
+                ? "items-center justify-center p-4"
+                : "flex-col items-start px-5 py-4"
             }`}
           >
             <Image
@@ -191,6 +193,11 @@ export function Sidebar() {
                   : "h-6 w-auto max-w-full"
               }
             />
+            {!isCollapsed && (
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-[0.2em] mt-1.5">
+                Admin Panel
+              </p>
+            )}
           </div>
 
           {/* Navigation */}

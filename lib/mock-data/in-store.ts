@@ -42,6 +42,13 @@ export interface MockOrderRecord {
   discount?: number;
 }
 
+/** A make/model/year-range a product is compatible with. */
+export interface VehicleFitment {
+  make: string;
+  model: string;
+  years: string[];
+}
+
 export interface MockProduct {
   id: string;
   sku: string;
@@ -50,6 +57,8 @@ export interface MockProduct {
   price: number;
   currency: string;
   stock: number;
+  /** Absent = universal fit (matches any vehicle filter). */
+  fitment?: VehicleFitment[];
 }
 
 export interface CartLine {
@@ -249,18 +258,43 @@ export const mockOrders: MockOrderRecord[] = [
   { id: "ord-14", orderNumber: "JO-2025-000046", customerId: "cust-8", channel: "online", total: 48.3, currency: "JOD", itemCount: 2, createdAt: "2025-12-28T19:15:00Z", paymentMethod: "Credit Card" },
 ];
 
+const years = (from: number, to: number): string[] =>
+  Array.from({ length: to - from + 1 }, (_, i) => String(from + i));
+
 export const mockProducts: MockProduct[] = [
-  { id: "prod-1", sku: "BRK-PAD-001", name: "Ceramic Brake Pads (Front)", category: "Brakes", price: 24.5, currency: "JOD", stock: 42 },
-  { id: "prod-2", sku: "BRK-ROT-002", name: "Brake Rotor Disc", category: "Brakes", price: 38.0, currency: "JOD", stock: 18 },
-  { id: "prod-3", sku: "OIL-FLT-003", name: "Oil Filter", category: "Filters", price: 6.75, currency: "JOD", stock: 120 },
-  { id: "prod-4", sku: "AIR-FLT-004", name: "Air Filter", category: "Filters", price: 9.25, currency: "JOD", stock: 75 },
+  { id: "prod-1", sku: "BRK-PAD-001", name: "Ceramic Brake Pads (Front)", category: "Brakes", price: 24.5, currency: "JOD", stock: 42, fitment: [
+    { make: "BMW", model: "430i", years: years(2020, 2023) },
+    { make: "Audi", model: "A4", years: years(2019, 2022) },
+  ] },
+  { id: "prod-2", sku: "BRK-ROT-002", name: "Brake Rotor Disc", category: "Brakes", price: 38.0, currency: "JOD", stock: 18, fitment: [
+    { make: "BMW", model: "430i", years: years(2020, 2023) },
+    { make: "Mercedes-Benz", model: "C-Class", years: years(2021, 2024) },
+  ] },
+  { id: "prod-3", sku: "OIL-FLT-003", name: "Oil Filter", category: "Filters", price: 6.75, currency: "JOD", stock: 120, fitment: [
+    { make: "Toyota", model: "Corolla", years: years(2017, 2022) },
+    { make: "Honda", model: "CR-V", years: years(2018, 2021) },
+    { make: "Kia", model: "Sportage", years: years(2019, 2022) },
+  ] },
+  { id: "prod-4", sku: "AIR-FLT-004", name: "Air Filter", category: "Filters", price: 9.25, currency: "JOD", stock: 75, fitment: [
+    { make: "Toyota", model: "Corolla", years: years(2017, 2022) },
+    { make: "Hyundai", model: "Tucson", years: years(2019, 2022) },
+  ] },
   { id: "prod-5", sku: "CAB-FLT-005", name: "Cabin Air Filter", category: "Filters", price: 8.0, currency: "JOD", stock: 60 },
-  { id: "prod-6", sku: "SPK-PLG-006", name: "Spark Plug (Set of 4)", category: "Engine", price: 14.5, currency: "JOD", stock: 33 },
+  { id: "prod-6", sku: "SPK-PLG-006", name: "Spark Plug (Set of 4)", category: "Engine", price: 14.5, currency: "JOD", stock: 33, fitment: [
+    { make: "Toyota", model: "Corolla", years: years(2016, 2021) },
+    { make: "Kia", model: "Cerato", years: years(2020, 2023) },
+  ] },
   { id: "prod-7", sku: "WIP-BLD-007", name: "Wiper Blades (Pair)", category: "Exterior", price: 11.0, currency: "JOD", stock: 54 },
   { id: "prod-8", sku: "BAT-CAR-008", name: "Car Battery 60Ah", category: "Electrical", price: 65.0, currency: "JOD", stock: 12 },
   { id: "prod-9", sku: "HLB-LED-009", name: "LED Headlight Bulb", category: "Electrical", price: 19.9, currency: "JOD", stock: 40 },
-  { id: "prod-10", sku: "TIM-BLT-010", name: "Timing Belt Kit", category: "Engine", price: 52.0, currency: "JOD", stock: 9 },
-  { id: "prod-11", sku: "SHK-ABS-011", name: "Shock Absorber (Front)", category: "Suspension", price: 47.5, currency: "JOD", stock: 16 },
+  { id: "prod-10", sku: "TIM-BLT-010", name: "Timing Belt Kit", category: "Engine", price: 52.0, currency: "JOD", stock: 9, fitment: [
+    { make: "Kia", model: "Sportage", years: years(2018, 2021) },
+    { make: "Hyundai", model: "Tucson", years: years(2018, 2021) },
+  ] },
+  { id: "prod-11", sku: "SHK-ABS-011", name: "Shock Absorber (Front)", category: "Suspension", price: 47.5, currency: "JOD", stock: 16, fitment: [
+    { make: "Nissan", model: "Patrol", years: years(2016, 2019) },
+    { make: "Jeep", model: "Wrangler", years: years(2020, 2023) },
+  ] },
   { id: "prod-12", sku: "RAD-COO-012", name: "Radiator Coolant 5L", category: "Fluids", price: 13.25, currency: "JOD", stock: 88 },
 ];
 

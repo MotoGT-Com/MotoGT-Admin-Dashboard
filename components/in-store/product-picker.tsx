@@ -3,7 +3,14 @@
 import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Minus, Plus } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Search, Minus, Plus, X } from "lucide-react";
 import {
   mockProducts,
   mockFeaturedProductIds,
@@ -12,6 +19,30 @@ import {
 } from "@/lib/mock-data/in-store";
 
 const categories = Array.from(new Set(mockProducts.map((p) => p.category)));
+
+const allFitments = mockProducts.flatMap((p) => p.fitment ?? []);
+const fitmentMakes = Array.from(new Set(allFitments.map((f) => f.make))).sort();
+
+/**
+ * A product matches the vehicle filter when it has a fitment entry for the
+ * selected make/model/year. Products without fitment data are universal
+ * (fluids, batteries, wipers...) and match any vehicle.
+ */
+function matchesVehicle(
+  product: MockProduct,
+  make: string | null,
+  model: string | null,
+  year: string | null
+): boolean {
+  if (!make) return true;
+  if (!product.fitment) return true; // universal fit
+  return product.fitment.some(
+    (f) =>
+      f.make === make &&
+      (!model || f.model === model) &&
+      (!year || f.years.includes(year))
+  );
+}
 
 interface ProductPickerProps {
   cart: CartLine[];
@@ -23,6 +54,58 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Vehicle filter (cascading: make → model → year).
+  const [vehicleMake, setVehicleMake] = useState<string | null>(null);
+  const [vehicleModel, setVehicleModel] = useState<string | null>(null);
+  const [vehicleYear, setVehicleYear] = useState<string | null>(null);
+
+  const modelOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allFitments
+            .filter((f) => f.make === vehicleMake)
+            .map((f) => f.model)
+        )
+      ).sort(),
+    [vehicleMake]
+  );
+
+  const yearOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allFitments
+            .filter(
+              (f) =>
+                f.make === vehicleMake &&
+                (!vehicleModel || f.model === vehicleModel)
+            )
+            .flatMap((f) => f.years)
+        )
+      ).sort((a, b) => Number(b) - Number(a)),
+    [vehicleMake, vehicleModel]
+  );
+
+  const handleMakeChange = (make: string) => {
+    setVehicleMake(make);
+    setVehicleModel(null);
+    setVehicleYear(null);
+  };
+
+  const handleModelChange = (model: string) => {
+    setVehicleModel(model);
+    setVehicleYear(null);
+  };
+
+  const clearVehicleFilter = () => {
+    setVehicleMake(null);
+    setVehicleModel(null);
+    setVehicleYear(null);
+  };
+
+  const vehicleFilterActive = Boolean(vehicleMake);
 
   const getQuantity = (productId: string) => quantities[productId] ?? 1;
   const setQuantity = (productId: string, qty: number) => {
@@ -36,7 +119,7 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
   }, [cart]);
 
   const hasQuery = searchQuery.trim().length > 0;
-  const showingFeatured = !hasQuery && !activeCategory;
+  const showingFeatured = !hasQuery && !activeCategory && !vehicleFilterActive;
 
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -47,9 +130,13 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
         p.name.toLowerCase().includes(q) ||
         p.sku.toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q);
-      return matchesCategory && matchesQuery;
+      return (
+        matchesCategory &&
+        matchesQuery &&
+        matchesVehicle(p, vehicleMake, vehicleModel, vehicleYear)
+      );
     });
-  }, [searchQuery, activeCategory]);
+  }, [searchQuery, activeCategory, vehicleMake, vehicleModel, vehicleYear]);
 
   const featuredProducts = useMemo(
     () =>
@@ -114,6 +201,65 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
         ))}
       </div>
 
+      {/* Vehicle fitment filter */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={vehicleMake ?? ""} onValueChange={handleMakeChange}>
+          <SelectTrigger size="sm" className="w-[130px]">
+            <SelectValue placeholder="Make" />
+          </SelectTrigger>
+          <SelectContent>
+            {fitmentMakes.map((make) => (
+              <SelectItem key={make} value={make}>
+                {make}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={vehicleModel ?? ""}
+          onValueChange={handleModelChange}
+          disabled={!vehicleMake}
+        >
+          <SelectTrigger size="sm" className="w-[130px]">
+            <SelectValue placeholder="Model" />
+          </SelectTrigger>
+          <SelectContent>
+            {modelOptions.map((model) => (
+              <SelectItem key={model} value={model}>
+                {model}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={vehicleYear ?? ""}
+          onValueChange={setVehicleYear}
+          disabled={!vehicleMake}
+        >
+          <SelectTrigger size="sm" className="w-[100px]">
+            <SelectValue placeholder="Year" />
+          </SelectTrigger>
+          <SelectContent>
+            {yearOptions.map((year) => (
+              <SelectItem key={year} value={year}>
+                {year}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {vehicleFilterActive && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={clearVehicleFilter}
+          >
+            <X size={14} className="mr-1" />
+            Clear vehicle
+          </Button>
+        )}
+      </div>
+
       {showingFeatured && (
         <p className="text-xs text-muted-foreground -mb-1">
           Frequently sold — search or pick a category to see more.
@@ -124,7 +270,9 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
         <div className="max-h-[420px] overflow-y-auto divide-y divide-border">
           {resultsToShow.length === 0 ? (
             <div className="py-10 text-center text-muted-foreground text-sm">
-              No products match your search.
+              {vehicleFilterActive
+                ? "No products fit the selected vehicle."
+                : "No products match your search."}
             </div>
           ) : (
             resultsToShow.map((product) => {
@@ -145,6 +293,11 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
                       {inCartQty && (
                         <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full whitespace-nowrap">
                           In cart · {inCartQty}
+                        </span>
+                      )}
+                      {vehicleFilterActive && !product.fitment && (
+                        <span className="text-xs text-muted-foreground border border-border px-2 py-0.5 rounded-full whitespace-nowrap">
+                          Universal fit
                         </span>
                       )}
                     </div>
