@@ -181,17 +181,32 @@ export function Sidebar() {
                 : "flex-col items-start px-5 py-4"
             }`}
           >
+            {/* The wordmark's "MOTO" letters are white in the primary asset
+                (for dark backgrounds) and black in the -black variant, so
+                each theme gets the readable one. */}
+            <Image
+              src="/motogt-logo-black.svg"
+              alt="MotoGT"
+              width={646}
+              height={94}
+              priority
+              className={`dark:hidden ${
+                isCollapsed
+                  ? "h-6 w-6 object-contain object-left"
+                  : "h-6 w-auto max-w-full"
+              }`}
+            />
             <Image
               src="/motogt-logo.svg"
               alt="MotoGT"
               width={646}
               height={94}
               priority
-              className={
+              className={`hidden dark:block ${
                 isCollapsed
                   ? "h-6 w-6 object-contain object-left"
                   : "h-6 w-auto max-w-full"
-              }
+              }`}
             />
             {!isCollapsed && (
               <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-[0.2em] mt-1.5">
