@@ -40,6 +40,9 @@ export interface MockOrderRecord {
   items?: CartLine[];
   subtotal?: number;
   discount?: number;
+  /** Customer display snapshot (used when the customer is an API user, not a mock record). */
+  customerName?: string;
+  customerPhone?: string;
 }
 
 /** A make/model/year-range a product is compatible with. */
@@ -329,9 +332,14 @@ export function findMockOrderById(id: string): MockOrderRecord | undefined {
 
 export interface CompletedSaleInput {
   orderNumber: string;
-  /** Existing customer id, or null when the sale created a brand-new customer. */
+  /**
+   * Existing customer id (mock id or real API user id), or null when the
+   * sale created a brand-new customer.
+   */
   customerId: string | null;
   newCustomer?: { name: string; phone: string; email: string };
+  /** Display snapshot for API-backed customers not present in mockCustomers. */
+  customerSnapshot?: { name: string; phone: string };
   items: CartLine[];
   subtotal: number;
   discount: number;
@@ -402,6 +410,8 @@ export function recordInStoreOrder(input: CompletedSaleInput): {
     items: input.items,
     subtotal: input.subtotal,
     discount: input.discount,
+    customerName: input.customerSnapshot?.name ?? input.newCustomer?.name,
+    customerPhone: input.customerSnapshot?.phone ?? input.newCustomer?.phone,
   };
   mockOrders.push(order);
 

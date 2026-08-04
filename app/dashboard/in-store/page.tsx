@@ -19,31 +19,37 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  mockProducts,
-  findCustomerByPhone,
   generateInStoreOrderNumber,
   recordInStoreOrder,
-  type MockCustomer,
   type PaymentMethod,
   type CartLine,
 } from "@/lib/mock-data/in-store";
+import { userService, type User } from "@/lib/services/user.service";
 import {
   NewCustomerForm,
   type NewCustomerFormValues,
 } from "@/components/in-store/new-customer-form";
-import {
-  AccountStatusBadge,
-  ChannelBadgeList,
-} from "@/components/in-store/badges";
+import { AccountStatusBadge } from "@/components/in-store/badges";
 import {
   StepIndicator,
   type StepState,
 } from "@/components/in-store/step-indicator";
 import { ProductPicker } from "@/components/in-store/product-picker";
 
+// Customers resolve against the real users API (GET /admin/users). "new"
+// customers stay local until the backend exposes an admin create-customer
+// endpoint — the payload is included in the completed-sale log.
 type ResolvedCustomer =
-  | { kind: "existing"; customer: MockCustomer }
+  | { kind: "existing"; user: User }
   | { kind: "new"; name: string; phone: string; email: string };
+
+const userDisplayName = (user: User): string =>
+  [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+
+const userPhone = (user: User): string =>
+  user.phoneNumber || user.phone || "";
+
+const normalizePhone = (phone: string): string => phone.replace(/[\s-]/g, "");
 
 const paymentOptions: { value: PaymentMethod; label: string }[] = [
   { value: "cash", label: "Cash" },
@@ -76,14 +82,33 @@ export default function NewInStoreOrderPage() {
   // --- Step 1: Customer ---
   const [phoneQuery, setPhoneQuery] = useState("");
   const [lookupAttempted, setLookupAttempted] = useState(false);
+  const [isLookingUp, setIsLookingUp] = useState(false);
   const [resolvedCustomer, setResolvedCustomer] =
     useState<ResolvedCustomer | null>(null);
 
-  const handleLookup = () => {
-    if (!phoneQuery.trim()) return;
-    const match = findCustomerByPhone(phoneQuery.trim());
-    setLookupAttempted(true);
-    setResolvedCustomer(match ? { kind: "existing", customer: match } : null);
+  const handleLookup = async () => {
+    const query = phoneQuery.trim();
+    if (!query || isLookingUp) return;
+    setIsLookingUp(true);
+    try {
+      // Search real customers by phone via GET /admin/users?q=...
+      const result = await userService.listUsers({
+        q: query,
+        role: "customer",
+        limit: 10,
+      });
+      const normalized = normalizePhone(query);
+      const match =
+        result.items.find(
+          (u) => normalizePhone(userPhone(u)) === normalized
+        ) ?? result.items[0];
+      setLookupAttempted(true);
+      setResolvedCustomer(match ? { kind: "existing", user: match } : null);
+    } catch (error: any) {
+      toast.error(error.message || "Customer lookup failed");
+    } finally {
+      setIsLookingUp(false);
+    }
   };
 
   const handleNewCustomerSubmit = (values: NewCustomerFormValues) => {
@@ -98,35 +123,25 @@ export default function NewInStoreOrderPage() {
 
   const customerName =
     resolvedCustomer?.kind === "existing"
-      ? resolvedCustomer.customer.name
+      ? userDisplayName(resolvedCustomer.user)
       : resolvedCustomer?.kind === "new"
         ? resolvedCustomer.name
         : null;
 
-  // --- Step 2: Cart ---
+  // --- Step 2: Cart (lines come from the API-backed product picker) ---
   const [cart, setCart] = useState<CartLine[]>([]);
 
-  const addToCart = (productId: string, quantity: number) => {
-    const product = mockProducts.find((p) => p.id === productId);
-    if (!product) return;
+  const addToCart = (line: CartLine) => {
     setCart((prev) => {
-      const existing = prev.find((line) => line.productId === productId);
+      const existing = prev.find((l) => l.productId === line.productId);
       if (existing) {
-        return prev.map((line) =>
-          line.productId === productId
-            ? { ...line, quantity: line.quantity + quantity }
-            : line
+        return prev.map((l) =>
+          l.productId === line.productId
+            ? { ...l, quantity: l.quantity + line.quantity }
+            : l
         );
       }
-      return [
-        ...prev,
-        {
-          productId,
-          name: product.name,
-          unitPrice: product.price,
-          quantity,
-        },
-      ];
+      return [...prev, line];
     });
   };
 
@@ -191,13 +206,19 @@ export default function NewInStoreOrderPage() {
     if (!canComplete || !resolvedCustomer || !paymentMethod) return;
     const orderNumber = generateInStoreOrderNumber();
 
-    // No backend yet — record into the in-memory mock stores so the order
-    // detail page and customer profile reflect this sale for the session.
+    const phone =
+      resolvedCustomer.kind === "existing"
+        ? userPhone(resolvedCustomer.user)
+        : resolvedCustomer.phone;
+
+    // BACKEND GAP: there is no order-creation endpoint yet (POST
+    // /admin/orders or similar). The sale is recorded session-locally so the
+    // confirmation flow works; this call becomes the real API request later.
     const { order, customerId } = recordInStoreOrder({
       orderNumber,
       customerId:
         resolvedCustomer.kind === "existing"
-          ? resolvedCustomer.customer.id
+          ? resolvedCustomer.user.id
           : null,
       newCustomer:
         resolvedCustomer.kind === "new"
@@ -207,6 +228,7 @@ export default function NewInStoreOrderPage() {
               email: resolvedCustomer.email,
             }
           : undefined,
+      customerSnapshot: { name: customerName || "customer", phone },
       items: cart,
       subtotal,
       discount: discountAmount,
@@ -219,10 +241,7 @@ export default function NewInStoreOrderPage() {
       orderNumber,
       customerId,
       customerName: customerName || "customer",
-      customerPhone:
-        resolvedCustomer.kind === "existing"
-          ? resolvedCustomer.customer.phone
-          : resolvedCustomer.phone,
+      customerPhone: phone,
       items: cart,
       subtotal,
       discount: discountAmount,
@@ -337,15 +356,15 @@ export default function NewInStoreOrderPage() {
                 </div>
                 <Button
                   onClick={handleLookup}
-                  disabled={!phoneQuery.trim()}
+                  disabled={!phoneQuery.trim() || isLookingUp}
                   className="sm:w-auto w-full"
                 >
-                  Look up
+                  {isLookingUp ? "Looking up..." : "Look up"}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Try 0791234567 for an existing customer, or any other number
-                to create a new one.
+                Searches registered customers by phone number. Unknown numbers
+                can be added as new customers.
               </p>
 
               {lookupAttempted && !resolvedCustomer && (
@@ -654,7 +673,7 @@ function SaleConfirmation({
         </Button>
       </div>
 
-      <div className="text-center">
+      <div className="text-center space-y-2">
         <Button
           variant="ghost"
           size="sm"
@@ -666,6 +685,10 @@ function SaleConfirmation({
           <Printer size={15} className="mr-1.5" />
           Print receipt
         </Button>
+        <p className="text-xs text-muted-foreground">
+          Recorded locally for this session — the order-creation API isn't
+          available yet, so this sale is not persisted to the backend.
+        </p>
       </div>
     </div>
   );
@@ -679,11 +702,20 @@ function ResolvedCustomerSummary({
   onChange: () => void;
 }) {
   const name =
-    resolved.kind === "existing" ? resolved.customer.name : resolved.name;
+    resolved.kind === "existing"
+      ? userDisplayName(resolved.user)
+      : resolved.name;
   const phone =
-    resolved.kind === "existing" ? resolved.customer.phone : resolved.phone;
+    resolved.kind === "existing" ? userPhone(resolved.user) : resolved.phone;
+  // Map the backend user model onto the in-store status concept: a verified
+  // account reads "Active"; an unverified one reads "Invited". A locally
+  // created customer is "Unclaimed" until the backend supports creating them.
   const status =
-    resolved.kind === "existing" ? resolved.customer.status : "unclaimed";
+    resolved.kind === "existing"
+      ? resolved.user.emailVerified
+        ? "active"
+        : "invited"
+      : "unclaimed";
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
@@ -695,20 +727,16 @@ function ResolvedCustomerSummary({
           <span className="font-medium text-sm truncate">{name}</span>
           <span className="text-muted-foreground text-sm">{phone}</span>
           <AccountStatusBadge status={status} />
-          {/* Quick context matching the Customers list: channels + order
-              count, so staff can tell a regular from a first-timer. */}
+          {/* BACKEND GAP: channel badges + total order count need per-customer
+              aggregates (channels, order count) from the API. */}
           {resolved.kind === "existing" ? (
-            <>
-              <ChannelBadgeList channels={resolved.customer.channels} />
-              <span className="text-xs text-muted-foreground">
-                {resolved.customer.totalOrders} order
-                {resolved.customer.totalOrders === 1 ? "" : "s"}
+            resolved.user.email && (
+              <span className="text-xs text-muted-foreground truncate">
+                {resolved.user.email}
               </span>
-            </>
+            )
           ) : (
-            <span className="text-xs text-muted-foreground">
-              First order
-            </span>
+            <span className="text-xs text-muted-foreground">First order</span>
           )}
         </div>
       </div>

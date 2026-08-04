@@ -22,9 +22,13 @@ export function InStoreOrderDetail() {
   const orderId = params.id as string;
 
   const order = findMockOrderById(orderId);
+  // The customer may be a session-local mock record or a real API user; for
+  // API users we rely on the display snapshot stored on the order.
   const customer = order
     ? mockCustomers.find((c) => c.id === order.customerId)
     : undefined;
+  const customerName = customer?.name ?? order?.customerName;
+  const customerPhone = customer?.phone ?? order?.customerPhone;
 
   if (!order) {
     return (
@@ -80,22 +84,20 @@ export function InStoreOrderDetail() {
               </div>
               <div className="min-w-0">
                 <p className="font-medium text-sm truncate">
-                  {customer?.name ?? "Unknown customer"}
+                  {customerName ?? "Unknown customer"}
                 </p>
-                {customer?.phone && (
+                {customerPhone && (
                   <p className="text-sm text-muted-foreground">
-                    {customer.phone}
+                    {customerPhone}
                   </p>
                 )}
               </div>
             </div>
-            {customer && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/dashboard/in-store/customers/${customer.id}`}>
-                  View profile
-                </Link>
-              </Button>
-            )}
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/dashboard/in-store/customers/${order.customerId}`}>
+                View profile
+              </Link>
+            </Button>
           </div>
         </CardContent>
       </Card>

@@ -1,12 +1,17 @@
 "use client";
 
-// TODO(IA): This page and /dashboard/users both represent "customers" today but pull
-// from different identity sources (in-store mock data here vs. the real Users API
-// there). Once the backend unifies customer identity across channels, merge this into
-// a single directory. For now this stays under In-Store as the channel-spanning mock
-// view, and /dashboard/users is left untouched.
+// TODO(IA): This page and /dashboard/users both represent "customers" today.
+// This view now pulls from the same real Users API (GET /admin/users,
+// role=customer) with in-store concepts layered on top. Once the backend
+// unifies customer identity across channels (channels, order counts, account
+// claim status), merge this into a single directory.
+//
+// BACKEND GAPS surfaced on this page (see the in-store backend guide):
+// - Channel badges per customer (needs per-customer channel aggregates)
+// - Total order count per customer (needs order count in the users list)
+// - "Unclaimed" account status + create-customer + resend-activation APIs
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,118 +38,85 @@ import {
   Search,
   UserPlus,
   Filter,
-  X,
   ChevronRight,
   Send,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  mockCustomers,
-  type MockCustomer,
-  type AccountStatus,
-  type Channel,
-} from "@/lib/mock-data/in-store";
-import {
-  AccountStatusBadge,
-  ChannelBadgeList,
-} from "@/components/in-store/badges";
+import { userService, type User } from "@/lib/services/user.service";
+import { AccountStatusBadge } from "@/components/in-store/badges";
 import {
   NewCustomerForm,
   type NewCustomerFormValues,
 } from "@/components/in-store/new-customer-form";
 
-const channelOptions: Channel[] = ["online", "whatsapp", "in_store"];
-const channelLabels: Record<Channel, string> = {
-  online: "Online",
-  whatsapp: "WhatsApp",
-  in_store: "In-Store",
-};
+type VerifiedFilter = "all" | "verified" | "unverified";
 
-const statusOptions: AccountStatus[] = ["active", "unclaimed", "invited"];
-const statusLabels: Record<AccountStatus, string> = {
-  active: "Active",
-  unclaimed: "Unclaimed",
-  invited: "Invited",
-};
+const userDisplayName = (user: User): string =>
+  [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+
+const userPhone = (user: User): string =>
+  user.phoneNumber || user.phone || "—";
 
 export default function InStoreCustomersPage() {
   const router = useRouter();
-  const [customers, setCustomers] = useState<MockCustomer[]>(mockCustomers);
+
+  const [users, setUsers] = useState<User[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedChannels, setSelectedChannels] = useState<Channel[]>([]);
-  const [selectedStatuses, setSelectedStatuses] = useState<AccountStatus[]>(
-    []
-  );
+  const [verifiedFilter, setVerifiedFilter] = useState<VerifiedFilter>("all");
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
-  const toggleChannel = (channel: Channel) => {
-    setSelectedChannels((prev) =>
-      prev.includes(channel)
-        ? prev.filter((c) => c !== channel)
-        : [...prev, channel]
-    );
-  };
+  const fetchUsers = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const result = await userService.listUsers({
+        page: currentPage,
+        limit: rowsPerPage,
+        q: searchTerm.trim() || undefined,
+        role: "customer",
+        emailVerified:
+          verifiedFilter === "all" ? undefined : verifiedFilter === "verified",
+        sortBy: "createdAt",
+        sortOrder: "desc",
+      });
+      setUsers(result.items);
+      setTotal(result.total);
+    } catch (error: any) {
+      setLoadError(error.message || "Failed to fetch customers");
+      setUsers([]);
+      setTotal(0);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, rowsPerPage, searchTerm, verifiedFilter]);
 
-  const toggleStatus = (status: AccountStatus) => {
-    setSelectedStatuses((prev) =>
-      prev.includes(status)
-        ? prev.filter((s) => s !== status)
-        : [...prev, status]
-    );
-  };
-
-  const clearFilters = () => {
-    setSelectedChannels([]);
-    setSelectedStatuses([]);
-  };
-
-  const filteredCustomers = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return customers.filter((c) => {
-      const matchesSearch =
-        !q ||
-        c.name.toLowerCase().includes(q) ||
-        c.phone.replace(/\s+/g, "").includes(q.replace(/\s+/g, ""));
-      const matchesChannel =
-        selectedChannels.length === 0 ||
-        c.channels.some((channel) => selectedChannels.includes(channel));
-      const matchesStatus =
-        selectedStatuses.length === 0 || selectedStatuses.includes(c.status);
-      return matchesSearch && matchesChannel && matchesStatus;
-    });
-  }, [customers, searchTerm, selectedChannels, selectedStatuses]);
+  // Debounce so typing in search doesn't fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(fetchUsers, 300);
+    return () => clearTimeout(timer);
+  }, [fetchUsers]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedChannels, selectedStatuses]);
+  }, [searchTerm, verifiedFilter, rowsPerPage]);
 
-  const totalCustomers = filteredCustomers.length;
-  const totalPages = Math.max(1, Math.ceil(totalCustomers / rowsPerPage));
+  const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const safePage = Math.min(currentPage, totalPages);
-  const pageSlice = filteredCustomers.slice(
-    (safePage - 1) * rowsPerPage,
-    safePage * rowsPerPage
-  );
 
   const handleCreateCustomer = (values: NewCustomerFormValues) => {
-    const newCustomer: MockCustomer = {
-      id: `cust-new-${Date.now()}`,
-      name: values.name,
-      phone: values.phone,
-      email: values.email || undefined,
-      memberSince: new Date().toISOString().slice(0, 10),
-      status: "unclaimed",
-      channels: ["in_store"],
-      totalOrders: 0,
-      vehicles: [],
-    };
-    // No backend yet — simulate the API call that would create the customer.
-    console.log("[in-store] Create customer payload", newCustomer);
-    setCustomers((prev) => [newCustomer, ...prev]);
-    toast.success(`${newCustomer.name} added as a new customer`);
+    // BACKEND GAP: no admin create-customer endpoint yet.
+    console.log("[in-store] Create customer payload", values);
+    toast.info(
+      "Customer creation isn't available yet — the admin create-customer API is pending."
+    );
     setIsNewCustomerOpen(false);
   };
 
@@ -154,7 +126,7 @@ export default function InStoreCustomersPage() {
         <div>
           <h1 className="text-3xl font-bold">Customers</h1>
           <p className="text-muted-foreground mt-1">
-            Search customers by name or phone across every sales channel.
+            Search registered customers by name, email, or phone.
           </p>
         </div>
         <Button onClick={() => setIsNewCustomerOpen(true)} className="gap-2">
@@ -170,7 +142,7 @@ export default function InStoreCustomersPage() {
             size={18}
           />
           <Input
-            placeholder="Search by name or phone..."
+            placeholder="Search by name, email, or phone..."
             className="pl-10"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -180,129 +152,76 @@ export default function InStoreCustomersPage() {
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="gap-2">
               <Filter size={18} />
-              Channel
-              {selectedChannels.length > 0 && (
-                <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                  {selectedChannels.length}
-                </span>
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56 p-4">
-            <div className="space-y-3">
-              {channelOptions.map((channel) => (
-                <label
-                  key={channel}
-                  className="flex items-center gap-3 cursor-pointer hover:opacity-80"
-                >
-                  <Checkbox
-                    checked={selectedChannels.includes(channel)}
-                    onCheckedChange={() => toggleChannel(channel)}
-                  />
-                  <span className="text-sm">{channelLabels[channel]}</span>
-                </label>
-              ))}
-            </div>
-            {selectedChannels.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-border">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedChannels([])}
-                  className="w-full text-muted-foreground"
-                >
-                  Clear filters
-                </Button>
-              </div>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <Filter size={18} />
               Status
-              {selectedStatuses.length > 0 && (
+              {verifiedFilter !== "all" && (
                 <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                  {selectedStatuses.length}
+                  1
                 </span>
               )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56 p-4">
             <div className="space-y-3">
-              {statusOptions.map((status) => (
+              {(
+                [
+                  ["verified", "Active (verified)"],
+                  ["unverified", "Invited (unverified)"],
+                ] as [VerifiedFilter, string][]
+              ).map(([value, label]) => (
                 <label
-                  key={status}
+                  key={value}
                   className="flex items-center gap-3 cursor-pointer hover:opacity-80"
                 >
                   <Checkbox
-                    checked={selectedStatuses.includes(status)}
-                    onCheckedChange={() => toggleStatus(status)}
+                    checked={verifiedFilter === value}
+                    onCheckedChange={() =>
+                      setVerifiedFilter((prev) =>
+                        prev === value ? "all" : value
+                      )
+                    }
                   />
-                  <span className="text-sm">{statusLabels[status]}</span>
+                  <span className="text-sm">{label}</span>
                 </label>
               ))}
             </div>
-            {selectedStatuses.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-border">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedStatuses([])}
-                  className="w-full text-muted-foreground"
-                >
-                  Clear filters
-                </Button>
-              </div>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* BACKEND GAP: the Channel filter (Online / WhatsApp / In-Store)
+            needs per-customer channel data from the API. */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button variant="outline" className="gap-2" disabled>
+                  <Filter size={18} />
+                  Channel
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              Channel filtering requires per-customer channel data from the
+              backend.
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
-      {(selectedChannels.length > 0 || selectedStatuses.length > 0) && (
-        <div className="flex gap-2 items-center flex-wrap">
-          {selectedChannels.map((channel) => (
-            <div
-              key={channel}
-              className="flex items-center gap-2 bg-primary/20 text-primary px-3 py-1 rounded-full text-sm"
-            >
-              Channel: {channelLabels[channel]}
-              <button
-                onClick={() => toggleChannel(channel)}
-                className="hover:opacity-70"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-          {selectedStatuses.map((status) => (
-            <div
-              key={status}
-              className="flex items-center gap-2 bg-blue-900/20 text-blue-300 px-3 py-1 rounded-full text-sm"
-            >
-              Status: {statusLabels[status]}
-              <button
-                onClick={() => toggleStatus(status)}
-                className="hover:opacity-70"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearFilters}
-            className="text-muted-foreground"
-          >
-            Reset All
-          </Button>
-        </div>
-      )}
-
       <div className="border border-border rounded-lg overflow-hidden">
-        {pageSlice.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+            <Loader2 size={18} className="animate-spin" />
+            Loading customers...
+          </div>
+        ) : loadError ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center space-y-3">
+              <p className="text-destructive">{loadError}</p>
+              <Button variant="outline" onClick={fetchUsers}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : users.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <p className="text-lg font-semibold text-foreground mb-2">
@@ -321,12 +240,11 @@ export default function InStoreCustomersPage() {
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left py-4 px-6 font-semibold">Name</th>
                 <th className="text-left py-4 px-6 font-semibold">Phone</th>
+                <th className="text-left py-4 px-6 font-semibold">Email</th>
                 <th className="text-left py-4 px-6 font-semibold">
                   Channels
                 </th>
-                <th className="text-left py-4 px-6 font-semibold">
-                  Total Orders
-                </th>
+                <th className="text-left py-4 px-6 font-semibold">Orders</th>
                 <th className="text-left py-4 px-6 font-semibold">Status</th>
                 <th className="text-right py-4 px-6 font-semibold">
                   <span className="sr-only">Actions</span>
@@ -334,30 +252,32 @@ export default function InStoreCustomersPage() {
               </tr>
             </thead>
             <tbody>
-              {pageSlice.map((customer) => {
-                const needsActivation =
-                  customer.status === "unclaimed" ||
-                  customer.status === "invited";
+              {users.map((user) => {
+                const needsActivation = !user.emailVerified;
                 return (
                   <tr
-                    key={customer.id}
+                    key={user.id}
                     className="border-b border-border hover:bg-primary/5 transition cursor-pointer group"
                     onClick={() =>
-                      router.push(
-                        `/dashboard/in-store/customers/${customer.id}`
-                      )
+                      router.push(`/dashboard/in-store/customers/${user.id}`)
                     }
                   >
-                    <td className="py-4 px-6 font-medium">{customer.name}</td>
+                    <td className="py-4 px-6 font-medium">
+                      {userDisplayName(user)}
+                    </td>
                     <td className="py-4 px-6 text-muted-foreground">
-                      {customer.phone}
+                      {userPhone(user)}
                     </td>
-                    <td className="py-4 px-6">
-                      <ChannelBadgeList channels={customer.channels} />
+                    <td className="py-4 px-6 text-muted-foreground">
+                      {user.email}
                     </td>
-                    <td className="py-4 px-6">{customer.totalOrders}</td>
+                    {/* BACKEND GAP: channels + order count per customer. */}
+                    <td className="py-4 px-6 text-muted-foreground">—</td>
+                    <td className="py-4 px-6 text-muted-foreground">—</td>
                     <td className="py-4 px-6">
-                      <AccountStatusBadge status={customer.status} />
+                      <AccountStatusBadge
+                        status={user.emailVerified ? "active" : "invited"}
+                      />
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center justify-end gap-1">
@@ -371,7 +291,7 @@ export default function InStoreCustomersPage() {
                                     size="icon-sm"
                                     disabled
                                     className="opacity-60 text-muted-foreground"
-                                    aria-label={`Resend activation link to ${customer.name}`}
+                                    aria-label={`Resend activation link to ${userDisplayName(user)}`}
                                   >
                                     <Send size={14} />
                                   </Button>
@@ -379,7 +299,7 @@ export default function InStoreCustomersPage() {
                               </TooltipTrigger>
                               <TooltipContent>
                                 Activation sending isn&apos;t wired up yet —
-                                visual only.
+                                needs a backend endpoint.
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -402,10 +322,7 @@ export default function InStoreCustomersPage() {
             <select
               className="bg-background border border-border rounded px-3 py-2 text-sm"
               value={rowsPerPage}
-              onChange={(e) => {
-                setRowsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
+              onChange={(e) => setRowsPerPage(Number(e.target.value))}
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
@@ -417,8 +334,7 @@ export default function InStoreCustomersPage() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">
-              Page {safePage} of {totalPages} ({totalCustomers} total
-              customers)
+              Page {safePage} of {totalPages} ({total} total customers)
             </span>
             <div className="flex gap-1">
               <Button
