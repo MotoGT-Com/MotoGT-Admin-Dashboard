@@ -36,12 +36,24 @@ import {
   CancelOrderModal,
   RefundOrderModal,
 } from "@/components/order-action-modals";
+import { InStoreOrderDetail } from "@/components/in-store/in-store-order-detail";
 
 export default function OrderDetailsPage() {
   const params = useParams();
+  const orderId = params.id as string;
+
+  // Session-local mock orders created by the in-store New Sale flow use
+  // "ins-" ids and don't exist in the backend — render them from mock data.
+  if (orderId.startsWith("ins-")) {
+    return <InStoreOrderDetail />;
+  }
+
+  return <BackendOrderDetailsPage orderId={orderId} />;
+}
+
+function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const orderId = params.id as string;
   const isGuest = searchParams.get("guest") === "true";
 
   const [order, setOrder] = useState<any>(null);

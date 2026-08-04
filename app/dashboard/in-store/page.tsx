@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,12 +14,15 @@ import {
   CheckCircle2,
   User as UserIcon,
   Lock,
+  Printer,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   mockProducts,
   findCustomerByPhone,
   generateInStoreOrderNumber,
+  recordInStoreOrder,
   type MockCustomer,
   type PaymentMethod,
   type CartLine,
@@ -27,8 +31,14 @@ import {
   NewCustomerForm,
   type NewCustomerFormValues,
 } from "@/components/in-store/new-customer-form";
-import { AccountStatusBadge } from "@/components/in-store/badges";
-import { StepIndicator } from "@/components/in-store/step-indicator";
+import {
+  AccountStatusBadge,
+  ChannelBadgeList,
+} from "@/components/in-store/badges";
+import {
+  StepIndicator,
+  type StepState,
+} from "@/components/in-store/step-indicator";
 import { ProductPicker } from "@/components/in-store/product-picker";
 
 type ResolvedCustomer =
@@ -40,6 +50,27 @@ const paymentOptions: { value: PaymentMethod; label: string }[] = [
   { value: "card", label: "Card" },
   { value: "other", label: "Other" },
 ];
+
+const paymentLabels: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  card: "Card",
+  other: "Other",
+};
+
+/** Everything the confirmation screen needs to render a receipt. */
+interface CompletedSale {
+  orderId: string;
+  orderNumber: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  items: CartLine[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  paymentMethod: PaymentMethod;
+  completedAt: string;
+}
 
 export default function NewInStoreOrderPage() {
   // --- Step 1: Customer ---
@@ -72,7 +103,7 @@ export default function NewInStoreOrderPage() {
         ? resolvedCustomer.name
         : null;
 
-  // --- Step 3: Cart ---
+  // --- Step 2: Cart ---
   const [cart, setCart] = useState<CartLine[]>([]);
 
   const addToCart = (productId: string, quantity: number) => {
@@ -115,24 +146,43 @@ export default function NewInStoreOrderPage() {
     setCart((prev) => prev.filter((line) => line.productId !== productId));
   };
 
+  // --- Discount ---
   const [discount, setDiscount] = useState("");
   const subtotal = cart.reduce(
     (sum, line) => sum + line.unitPrice * line.quantity,
     0
   );
-  const discountAmount = Math.min(Math.max(Number(discount) || 0, 0), subtotal);
+  // Guardrail: the applied discount is always clamped to [0, subtotal] so the
+  // total can never go negative, regardless of what's typed in the field.
+  const rawDiscount = Number(discount) || 0;
+  const discountAmount = Math.min(Math.max(rawDiscount, 0), subtotal);
+  const discountExceedsSubtotal = cart.length > 0 && rawDiscount > subtotal;
   const total = subtotal - discountAmount;
 
-  // --- Payment ---
+  // --- Step 3: Payment ---
+  // Deliberately no pre-selected default: mis-recorded payment method is a
+  // reconciliation problem, so staff must make an explicit choice before
+  // Complete Sale enables.
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(
     null
   );
 
+  // --- Cancel sale ---
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const saleInProgress = Boolean(resolvedCustomer) || cart.length > 0;
+
+  const resetFlow = () => {
+    resetCustomer();
+    setCart([]);
+    setDiscount("");
+    setPaymentMethod(null);
+    setConfirmingCancel(false);
+  };
+
   // --- Complete sale ---
-  const [completedOrder, setCompletedOrder] = useState<{
-    orderNumber: string;
-    customerName: string;
-  } | null>(null);
+  const [completedSale, setCompletedSale] = useState<CompletedSale | null>(
+    null
+  );
 
   const canComplete =
     Boolean(resolvedCustomer) && cart.length > 0 && Boolean(paymentMethod);
@@ -140,68 +190,124 @@ export default function NewInStoreOrderPage() {
   const handleCompleteSale = () => {
     if (!canComplete || !resolvedCustomer || !paymentMethod) return;
     const orderNumber = generateInStoreOrderNumber();
-    const payload = {
+
+    // No backend yet — record into the in-memory mock stores so the order
+    // detail page and customer profile reflect this sale for the session.
+    const { order, customerId } = recordInStoreOrder({
       orderNumber,
-      customer: resolvedCustomer,
+      customerId:
+        resolvedCustomer.kind === "existing"
+          ? resolvedCustomer.customer.id
+          : null,
+      newCustomer:
+        resolvedCustomer.kind === "new"
+          ? {
+              name: resolvedCustomer.name,
+              phone: resolvedCustomer.phone,
+              email: resolvedCustomer.email,
+            }
+          : undefined,
       items: cart,
+      subtotal,
       discount: discountAmount,
       total,
       paymentMethod,
-    };
-    // No backend yet — simulate the API call that would log the sale.
-    console.log("[in-store] Complete sale payload", payload);
-    toast.success(`Order #${orderNumber} logged for ${customerName}`);
-    setCompletedOrder({
-      orderNumber,
-      customerName: customerName || "customer",
     });
+
+    setCompletedSale({
+      orderId: order.id,
+      orderNumber,
+      customerId,
+      customerName: customerName || "customer",
+      customerPhone:
+        resolvedCustomer.kind === "existing"
+          ? resolvedCustomer.customer.phone
+          : resolvedCustomer.phone,
+      items: cart,
+      subtotal,
+      discount: discountAmount,
+      total,
+      paymentMethod,
+      completedAt: new Date().toISOString(),
+    });
+
+    // Brief, ambient confirmation only — the confirmation screen below is
+    // the primary source of truth, so don't duplicate its content here.
+    toast.success(`Order #${orderNumber}`);
   };
 
   const startNewSale = () => {
-    setCompletedOrder(null);
-    resetCustomer();
-    setCart([]);
-    setDiscount("");
-    setPaymentMethod(null);
+    setCompletedSale(null);
+    resetFlow();
   };
 
-  if (completedOrder) {
+  if (completedSale) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Card className="max-w-md w-full text-center">
-          <CardContent className="pt-10 pb-8 space-y-4">
-            <CheckCircle2 className="mx-auto h-14 w-14 text-primary" />
-            <div>
-              <h2 className="text-xl font-bold">Sale complete</h2>
-              <p className="text-muted-foreground mt-1">
-                Order #{completedOrder.orderNumber} logged for{" "}
-                {completedOrder.customerName}.
-              </p>
-            </div>
-            <Button className="w-full" onClick={startNewSale}>
-              Start new sale
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <SaleConfirmation sale={completedSale} onStartNewSale={startNewSale} />
     );
   }
 
-  const currentStep = !resolvedCustomer ? 1 : cart.length === 0 ? 2 : 3;
+  // Step semantics (see StepIndicator for the state definitions):
+  // 1. Customer: "complete" once a customer is resolved; editable via
+  //    "Change", which resets it back to "active".
+  // 2. Products: "met" once the cart has ≥1 item — requirement satisfied, but
+  //    staff can keep adding items, so it never reads as fully "complete".
+  // 3. Payment: "active" once steps 1–2 are satisfied; "complete" only when a
+  //    payment method is explicitly chosen (i.e. Complete Sale is enabled).
+  const stepStates: StepState[] = [
+    resolvedCustomer ? "complete" : "active",
+    !resolvedCustomer ? "upcoming" : cart.length === 0 ? "active" : "met",
+    !resolvedCustomer || cart.length === 0
+      ? "upcoming"
+      : paymentMethod
+        ? "complete"
+        : "active",
+  ];
 
   return (
     <div className="space-y-6 pb-10">
-      <div>
-        <h1 className="text-3xl font-bold">New In-Store Sale</h1>
-        <p className="text-muted-foreground mt-1">
-          Look up the customer, build the cart, and complete the sale at the
-          counter.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">New In-Store Sale</h1>
+          <p className="text-muted-foreground mt-1">
+            Look up the customer, build the cart, and complete the sale at the
+            counter.
+          </p>
+        </div>
+
+        {/* Cancel sale: secondary by design; lightweight inline confirm so
+            walking away mid-transaction is fast to handle. */}
+        {saleInProgress &&
+          (confirmingCancel ? (
+            <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+              <span className="text-sm">Cancel this sale?</span>
+              <Button size="sm" variant="destructive" onClick={resetFlow}>
+                Yes, cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirmingCancel(false)}
+              >
+                Keep
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => setConfirmingCancel(true)}
+            >
+              <XCircle size={15} className="mr-1.5" />
+              Cancel sale
+            </Button>
+          ))}
       </div>
 
       <StepIndicator
         steps={["Customer", "Products", "Payment"]}
-        currentStep={currentStep}
+        stepStates={stepStates}
       />
 
       {/* Step 1: Customer — always active first */}
@@ -364,11 +470,19 @@ export default function NewInStoreOrderPage() {
                     id="discount"
                     type="number"
                     min={0}
+                    max={subtotal || undefined}
                     placeholder="0.00"
                     value={discount}
                     onChange={(e) => setDiscount(e.target.value)}
                     disabled={cart.length === 0}
+                    aria-invalid={discountExceedsSubtotal}
                   />
+                  {discountExceedsSubtotal && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Discount can't exceed the subtotal — capped at JOD{" "}
+                      {subtotal.toFixed(2)}.
+                    </p>
+                  )}
                 </div>
                 <div className="flex justify-between text-sm text-muted-foreground pt-1">
                   <span>Subtotal</span>
@@ -438,6 +552,125 @@ export default function NewInStoreOrderPage() {
   );
 }
 
+/**
+ * Post-sale confirmation: a lightweight receipt staff can glance at to
+ * confirm what was actually charged, plus the three follow-up actions.
+ */
+function SaleConfirmation({
+  sale,
+  onStartNewSale,
+}: {
+  sale: CompletedSale;
+  onStartNewSale: () => void;
+}) {
+  return (
+    <div className="max-w-2xl mx-auto space-y-6 py-6 pb-16">
+      {/* Header */}
+      <div className="text-center space-y-2">
+        <CheckCircle2 className="mx-auto h-14 w-14 text-green-600 dark:text-green-400" />
+        <h1 className="text-3xl font-bold">Sale complete</h1>
+        <p className="text-muted-foreground">
+          {new Date(sale.completedAt).toLocaleString()}
+        </p>
+      </div>
+
+      {/* Receipt */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <CardTitle className="text-base">
+              Order #{sale.orderNumber}
+            </CardTitle>
+            <span className="text-sm text-muted-foreground">
+              Paid by {paymentLabels[sale.paymentMethod]}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2.5">
+            <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0">
+              <UserIcon size={16} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">
+                {sale.customerName}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {sale.customerPhone}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {sale.items.map((line) => (
+              <div
+                key={line.productId}
+                className="flex items-start justify-between gap-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium leading-snug">{line.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {line.quantity} × JOD {line.unitPrice.toFixed(2)}
+                  </p>
+                </div>
+                <p className="font-semibold shrink-0">
+                  JOD {(line.unitPrice * line.quantity).toFixed(2)}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-1 pt-3 border-t border-border">
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>Subtotal</span>
+              <span>JOD {sale.subtotal.toFixed(2)}</span>
+            </div>
+            {sale.discount > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Discount</span>
+                <span>- JOD {sale.discount.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-base font-bold pt-1">
+              <span>Total charged</span>
+              <span>JOD {sale.total.toFixed(2)}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Next actions */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Button size="lg" className="flex-1" onClick={onStartNewSale}>
+          Start new sale
+        </Button>
+        <Button size="lg" variant="outline" className="flex-1" asChild>
+          <Link href={`/dashboard/orders/${sale.orderId}`}>View order</Link>
+        </Button>
+        <Button size="lg" variant="outline" className="flex-1" asChild>
+          <Link href={`/dashboard/in-store/customers/${sale.customerId}`}>
+            View customer
+          </Link>
+        </Button>
+      </div>
+
+      <div className="text-center">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          onClick={() =>
+            toast.info("Receipt printing isn't wired up yet (mock).")
+          }
+        >
+          <Printer size={15} className="mr-1.5" />
+          Print receipt
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ResolvedCustomerSummary({
   resolved,
   onChange,
@@ -445,9 +678,12 @@ function ResolvedCustomerSummary({
   resolved: ResolvedCustomer;
   onChange: () => void;
 }) {
-  const name = resolved.kind === "existing" ? resolved.customer.name : resolved.name;
-  const phone = resolved.kind === "existing" ? resolved.customer.phone : resolved.phone;
-  const status = resolved.kind === "existing" ? resolved.customer.status : "unclaimed";
+  const name =
+    resolved.kind === "existing" ? resolved.customer.name : resolved.name;
+  const phone =
+    resolved.kind === "existing" ? resolved.customer.phone : resolved.phone;
+  const status =
+    resolved.kind === "existing" ? resolved.customer.status : "unclaimed";
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
@@ -459,6 +695,21 @@ function ResolvedCustomerSummary({
           <span className="font-medium text-sm truncate">{name}</span>
           <span className="text-muted-foreground text-sm">{phone}</span>
           <AccountStatusBadge status={status} />
+          {/* Quick context matching the Customers list: channels + order
+              count, so staff can tell a regular from a first-timer. */}
+          {resolved.kind === "existing" ? (
+            <>
+              <ChannelBadgeList channels={resolved.customer.channels} />
+              <span className="text-xs text-muted-foreground">
+                {resolved.customer.totalOrders} order
+                {resolved.customer.totalOrders === 1 ? "" : "s"}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              First order
+            </span>
+          )}
         </div>
       </div>
       <Button variant="ghost" size="sm" onClick={onChange} className="shrink-0">

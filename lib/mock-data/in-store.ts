@@ -36,6 +36,10 @@ export interface MockOrderRecord {
   itemCount: number;
   createdAt: string; // ISO date
   paymentMethod: string;
+  /** Present only on orders recorded via the New Sale flow this session. */
+  items?: CartLine[];
+  subtotal?: number;
+  discount?: number;
 }
 
 export interface MockProduct {
@@ -283,4 +287,89 @@ export function getCustomerChannels(customerId: string): Channel[] {
 export function generateInStoreOrderNumber(): string {
   const rand = Math.floor(1000 + Math.random() * 9000);
   return `IS-${new Date().getFullYear()}-${rand}`;
+}
+
+export function findMockOrderById(id: string): MockOrderRecord | undefined {
+  return mockOrders.find((o) => o.id === id);
+}
+
+export interface CompletedSaleInput {
+  orderNumber: string;
+  /** Existing customer id, or null when the sale created a brand-new customer. */
+  customerId: string | null;
+  newCustomer?: { name: string; phone: string; email: string };
+  items: CartLine[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  paymentMethod: PaymentMethod;
+}
+
+const paymentMethodLabels: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  card: "Card",
+  other: "Other",
+};
+
+/**
+ * Records a completed New Sale into the in-memory mock stores so the rest of
+ * the mock UI (order detail, customer profile, customers list) stays
+ * consistent with what the cashier just did.
+ *
+ * - Pushes a MockOrderRecord (id prefixed "ins-" so the orders detail route
+ *   can recognize session-local in-store orders).
+ * - For a brand-new customer, creates a MockCustomer (status "unclaimed",
+ *   channel "in_store") so "View customer" has a real profile to link to.
+ * - For an existing customer, bumps totalOrders and tags the in_store channel.
+ *
+ * Everything here is session-only: a hard reload resets it. That's intentional
+ * for the frontend-only pass — no backend calls.
+ */
+export function recordInStoreOrder(input: CompletedSaleInput): {
+  order: MockOrderRecord;
+  customerId: string;
+} {
+  let customerId = input.customerId;
+
+  if (!customerId) {
+    const newCustomer: MockCustomer = {
+      id: `cust-ins-${Math.floor(1000 + Math.random() * 9000)}`,
+      name: input.newCustomer?.name ?? "Walk-in customer",
+      phone: input.newCustomer?.phone ?? "",
+      email: input.newCustomer?.email || undefined,
+      memberSince: new Date().toISOString(),
+      status: "unclaimed",
+      channels: ["in_store"],
+      totalOrders: 1,
+      vehicles: [],
+    };
+    mockCustomers.push(newCustomer);
+    customerId = newCustomer.id;
+  } else {
+    const existing = mockCustomers.find((c) => c.id === customerId);
+    if (existing) {
+      existing.totalOrders += 1;
+      if (!existing.channels.includes("in_store")) {
+        existing.channels.push("in_store");
+      }
+    }
+  }
+
+  const order: MockOrderRecord = {
+    id: `ins-${Math.floor(10000 + Math.random() * 90000)}`,
+    orderNumber: input.orderNumber,
+    customerId,
+    channel: "in_store",
+    total: input.total,
+    currency: "JOD",
+    itemCount: input.items.reduce((sum, line) => sum + line.quantity, 0),
+    createdAt: new Date().toISOString(),
+    paymentMethod: paymentMethodLabels[input.paymentMethod],
+    items: input.items,
+    subtotal: input.subtotal,
+    discount: input.discount,
+  };
+  mockOrders.push(order);
+
+  return { order, customerId };
 }
