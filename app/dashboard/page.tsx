@@ -38,8 +38,40 @@ const EMPTY_KPIS: DashboardData['kpis'] = {
   outOfStockProducts: 0,
 };
 
+// Channel breakdown isn't tracked by the real API yet — this mock multiplier
+// fakes a plausible split so the filter visibly does something. Remove once
+// order records carry a real channel field.
+type ChannelFilter = 'all' | 'online' | 'whatsapp' | 'in_store';
+
+const channelMockMultipliers: Record<ChannelFilter, number> = {
+  all: 1,
+  online: 0.55,
+  whatsapp: 0.18,
+  in_store: 0.27,
+};
+
+function applyChannelMock(
+  kpis: DashboardData['kpis'],
+  channel: ChannelFilter
+): DashboardData['kpis'] {
+  const factor = channelMockMultipliers[channel];
+  if (factor === 1) return kpis;
+  return {
+    ...kpis,
+    revenue: kpis.revenue * factor,
+    revenuePrevious: kpis.revenuePrevious * factor,
+    orders: Math.round(kpis.orders * factor),
+    ordersPrevious: Math.round(kpis.ordersPrevious * factor),
+    pendingOrders: Math.round(kpis.pendingOrders * factor),
+    processingOrders: Math.round(kpis.processingOrders * factor),
+    newCustomers: Math.round(kpis.newCustomers * factor),
+    newCustomersPrevious: Math.round(kpis.newCustomersPrevious * factor),
+  };
+}
+
 export default function DashboardPage() {
   const [period, setPeriod] = useState<DashboardPeriod>('7d');
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
   const [storeId, setStoreId] = useState<string | null>(null);
   const [storeName, setStoreName] = useState<string>('');
   const [data, setData] = useState<DashboardData | null>(null);
@@ -113,6 +145,7 @@ export default function DashboardPage() {
   const label = periodLabel(period);
   const currencyCode = data?.currencyCode ?? 'JOD';
   const kpis = data?.kpis ?? EMPTY_KPIS;
+  const displayKpis = applyChannelMock(kpis, channelFilter);
   const showLoading = bootstrapping || (loading && !data);
 
   return (
@@ -127,6 +160,21 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Select
+            value={channelFilter}
+            onValueChange={(value) => setChannelFilter(value as ChannelFilter)}
+            disabled={bootstrapping || !storeId}
+          >
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="Channel" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All channels</SelectItem>
+              <SelectItem value="online">Online</SelectItem>
+              <SelectItem value="whatsapp">WhatsApp</SelectItem>
+              <SelectItem value="in_store">In-Store</SelectItem>
+            </SelectContent>
+          </Select>
           <Select
             value={period}
             onValueChange={(value) => setPeriod(value as DashboardPeriod)}
@@ -163,7 +211,22 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <KpiCards kpis={kpis} currencyCode={currencyCode} loading={showLoading} />
+      <KpiCards
+        kpis={displayKpis}
+        currencyCode={currencyCode}
+        loading={showLoading}
+      />
+      {channelFilter !== 'all' && (
+        <p className="text-xs text-muted-foreground -mt-2">
+          Showing a mock breakdown for the{' '}
+          {channelFilter === 'in_store'
+            ? 'In-Store'
+            : channelFilter === 'whatsapp'
+              ? 'WhatsApp'
+              : 'Online'}{' '}
+          channel — channel-level reporting isn&apos;t tracked by the API yet.
+        </p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <RevenueChart
