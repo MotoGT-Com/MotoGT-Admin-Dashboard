@@ -38,7 +38,6 @@ import {
   Pencil,
   Trash2,
   Store as StoreIcon,
-  Globe,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { carService, BrandData, Car } from "@/lib/services/car.service";
@@ -57,9 +56,8 @@ export default function CarsPage() {
   const [loading, setLoading] = useState(true);
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
 
-  // Store and Language state
+  // Store and Language state (language is auto-selected; not shown in UI)
   const [stores, setStores] = useState<any[]>([]);
-  const [languages, setLanguages] = useState<any[]>([]);
   const [selectedStore, setSelectedStore] = useState<any | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState<any | null>(null);
   const [storesLoading, setStoresLoading] = useState(true);
@@ -98,7 +96,6 @@ export default function CarsPage() {
         ]);
 
         setStores(fetchedStores);
-        setLanguages(fetchedLanguages);
 
         // Set selected store from localStorage or first store
         const savedStore = settingsService.getSelectedStore();
@@ -109,7 +106,7 @@ export default function CarsPage() {
           settingsService.setSelectedStore(fetchedStores[0].id);
         }
 
-        // Set selected language from localStorage or first language
+        // Auto-select language (selector removed from UI)
         const savedLanguage = settingsService.getSelectedLanguage();
         if (
           savedLanguage &&
@@ -175,17 +172,6 @@ export default function CarsPage() {
         description: `Switched to ${store.name}`,
       });
       // Cars will be refetched automatically via useEffect
-    }
-  };
-
-  const handleLanguageChange = (languageId: string) => {
-    const language = languages.find((l) => l.id === languageId);
-    if (language) {
-      setSelectedLanguage(language);
-      settingsService.setSelectedLanguage(languageId);
-      toast.success("Language Changed", {
-        description: `Switched to ${language.name}`,
-      });
     }
   };
 
@@ -552,7 +538,7 @@ export default function CarsPage() {
         </div>
       </div>
 
-      {/* Store and Language Selector */}
+      {/* Store Selector */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4">
@@ -579,34 +565,6 @@ export default function CarsPage() {
                   {stores.map((store) => (
                     <SelectItem key={store.id} value={store.id}>
                       {store.name} ({store.currencyCode})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1 min-w-[200px] space-y-2">
-              <Label className="flex items-center gap-2">
-                <Globe size={16} />
-                Language
-              </Label>
-              <Select
-                value={selectedLanguage?.id || ""}
-                onValueChange={handleLanguageChange}
-                disabled={languages.length === 0}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue
-                    placeholder={
-                      languages.length === 0
-                        ? "No languages available"
-                        : "Select language"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {languages.map((language) => (
-                    <SelectItem key={language.id} value={language.id}>
-                      {language.name} ({language.code})
                     </SelectItem>
                   ))}
                 </SelectContent>

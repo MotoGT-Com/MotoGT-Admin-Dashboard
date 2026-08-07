@@ -1,5 +1,43 @@
 import type { DashboardPeriod } from './services/dashboard.service';
 
+const PRESET_DAYS: Record<Exclude<DashboardPeriod, 'custom'>, number> = {
+  '7d': 7,
+  '14d': 14,
+  '30d': 30,
+  '90d': 90,
+  '180d': 180,
+};
+
+/** Format a Date as YYYY-MM-DD in local calendar time. */
+export function toIsoDate(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Resolve inclusive YYYY-MM-DD bounds for a dashboard period selection.
+ */
+export function resolveDashboardDateRange(
+  period: DashboardPeriod,
+  custom?: { from?: string; to?: string },
+  now: Date = new Date(),
+): { from: string; to: string } {
+  if (period === 'custom') {
+    const to = custom?.to || toIsoDate(now);
+    const from = custom?.from || to;
+    return { from, to };
+  }
+
+  const days = PRESET_DAYS[period];
+  const to = toIsoDate(now);
+  const fromDate = new Date(now);
+  // Inclusive window of N days ending today → go back (N - 1) days.
+  fromDate.setDate(fromDate.getDate() - (days - 1));
+  return { from: toIsoDate(fromDate), to };
+}
+
 export function formatMoney(amount: number, currencyCode: string): string {
   try {
     return new Intl.NumberFormat('en-JO', {
@@ -34,17 +72,40 @@ export function formatPercentDelta(delta: number | null): string | null {
   return `${sign}${rounded}% vs prior period`;
 }
 
-export function periodLabel(period: DashboardPeriod): string {
+export function periodLabel(
+  period: DashboardPeriod,
+  range?: { from?: string; to?: string },
+): string {
   switch (period) {
-    case 'today':
-      return 'Today';
     case '7d':
       return 'Last 7 days';
+    case '14d':
+      return 'Last 2 weeks';
     case '30d':
       return 'Last 30 days';
+    case '90d':
+      return 'Last 3 months';
+    case '180d':
+      return 'Last 6 months';
+    case 'custom': {
+      if (range?.from && range?.to) {
+        return `${formatShortDate(range.from)} – ${formatShortDate(range.to)}`;
+      }
+      return 'Custom dates';
+    }
     default:
       return period;
   }
+}
+
+function formatShortDate(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 export function formatStatusLabel(status: string): string {

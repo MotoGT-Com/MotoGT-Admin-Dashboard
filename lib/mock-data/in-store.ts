@@ -75,7 +75,7 @@ export const mockCustomers: MockCustomer[] = [
   {
     id: "cust-1",
     name: "Ahmad Alkurdi",
-    phone: "0791234567",
+    phone: "+962791234567",
     email: "ahmad.alkurdi@example.com",
     memberSince: "2023-02-14",
     status: "active",
@@ -86,7 +86,7 @@ export const mockCustomers: MockCustomer[] = [
   {
     id: "cust-2",
     name: "Jamal Amir",
-    phone: "0787654321",
+    phone: "+962787654321",
     email: "jamal.amir@example.com",
     memberSince: "2023-08-02",
     status: "active",
@@ -97,7 +97,7 @@ export const mockCustomers: MockCustomer[] = [
   {
     id: "cust-3",
     name: "Lina Haddad",
-    phone: "0799112233",
+    phone: "+962799112233",
     memberSince: "2025-11-20",
     status: "unclaimed",
     channels: ["in_store"],
@@ -107,7 +107,7 @@ export const mockCustomers: MockCustomer[] = [
   {
     id: "cust-4",
     name: "Yousef Nasser",
-    phone: "0781122334",
+    phone: "+962781122334",
     email: "yousef.nasser@example.com",
     memberSince: "2025-12-05",
     status: "invited",
@@ -118,7 +118,7 @@ export const mockCustomers: MockCustomer[] = [
   {
     id: "cust-5",
     name: "Sara Odeh",
-    phone: "0776655443",
+    phone: "+962776655443",
     email: "sara.odeh@example.com",
     memberSince: "2022-06-30",
     status: "active",
@@ -322,8 +322,15 @@ export function getCustomerChannels(customerId: string): Channel[] {
 }
 
 export function generateInStoreOrderNumber(): string {
+  return generateChannelOrderNumber("in_store");
+}
+
+export function generateChannelOrderNumber(
+  channel: "in_store" | "whatsapp"
+): string {
   const rand = Math.floor(1000 + Math.random() * 9000);
-  return `IS-${new Date().getFullYear()}-${rand}`;
+  const prefix = channel === "whatsapp" ? "WA" : "IS";
+  return `${prefix}-${new Date().getFullYear()}-${rand}`;
 }
 
 export function findMockOrderById(id: string): MockOrderRecord | undefined {
@@ -345,6 +352,10 @@ export interface CompletedSaleInput {
   discount: number;
   total: number;
   paymentMethod: PaymentMethod;
+  /** Defaults to in_store for backward compatibility. */
+  channel?: "in_store" | "whatsapp";
+  /** Optional WhatsApp conversation note (UI-only until backend). */
+  notes?: string;
 }
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -354,23 +365,16 @@ const paymentMethodLabels: Record<PaymentMethod, string> = {
 };
 
 /**
- * Records a completed New Sale into the in-memory mock stores so the rest of
- * the mock UI (order detail, customer profile, customers list) stays
- * consistent with what the cashier just did.
+ * Records a completed channel order into the in-memory mock stores so the
+ * rest of the mock UI (order detail, customer profile) stays consistent.
  *
- * - Pushes a MockOrderRecord (id prefixed "ins-" so the orders detail route
- *   can recognize session-local in-store orders).
- * - For a brand-new customer, creates a MockCustomer (status "unclaimed",
- *   channel "in_store") so "View customer" has a real profile to link to.
- * - For an existing customer, bumps totalOrders and tags the in_store channel.
- *
- * Everything here is session-only: a hard reload resets it. That's intentional
- * for the frontend-only pass — no backend calls.
+ * Session-only: a hard reload resets it. No backend calls yet.
  */
-export function recordInStoreOrder(input: CompletedSaleInput): {
+export function recordChannelOrder(input: CompletedSaleInput): {
   order: MockOrderRecord;
   customerId: string;
 } {
+  const channel = input.channel ?? "in_store";
   let customerId = input.customerId;
 
   if (!customerId) {
@@ -381,7 +385,7 @@ export function recordInStoreOrder(input: CompletedSaleInput): {
       email: input.newCustomer?.email || undefined,
       memberSince: new Date().toISOString(),
       status: "unclaimed",
-      channels: ["in_store"],
+      channels: [channel],
       totalOrders: 1,
       vehicles: [],
     };
@@ -391,8 +395,8 @@ export function recordInStoreOrder(input: CompletedSaleInput): {
     const existing = mockCustomers.find((c) => c.id === customerId);
     if (existing) {
       existing.totalOrders += 1;
-      if (!existing.channels.includes("in_store")) {
-        existing.channels.push("in_store");
+      if (!existing.channels.includes(channel)) {
+        existing.channels.push(channel);
       }
     }
   }
@@ -401,7 +405,7 @@ export function recordInStoreOrder(input: CompletedSaleInput): {
     id: `ins-${Math.floor(10000 + Math.random() * 90000)}`,
     orderNumber: input.orderNumber,
     customerId,
-    channel: "in_store",
+    channel,
     total: input.total,
     currency: "JOD",
     itemCount: input.items.reduce((sum, line) => sum + line.quantity, 0),
@@ -416,4 +420,12 @@ export function recordInStoreOrder(input: CompletedSaleInput): {
   mockOrders.push(order);
 
   return { order, customerId };
+}
+
+/** @deprecated Prefer recordChannelOrder — kept for existing call sites. */
+export function recordInStoreOrder(input: CompletedSaleInput): {
+  order: MockOrderRecord;
+  customerId: string;
+} {
+  return recordChannelOrder({ ...input, channel: input.channel ?? "in_store" });
 }

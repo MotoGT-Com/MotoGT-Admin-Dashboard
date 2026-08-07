@@ -9,29 +9,20 @@ import { useMockRole } from "@/lib/context/mock-role-context";
 import {
   LayoutDashboard,
   ShoppingCart,
-  Package,
   Layers,
   FolderTree,
   Tag,
   Users,
   Car,
-  FileText,
-  Zap,
-  TicketIcon,
   ListTree,
-  Settings,
-  ChevronDown,
   Menu,
   X,
-  ChevronsLeft,
-  ChevronsRight,
-  UserCog,
-  Shield,
-  ScrollText,
-  Warehouse,
   Percent,
-  ShoppingBag,
   Contact,
+  Library,
+  FileText,
+  Settings,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -46,9 +37,10 @@ interface NavItem {
   href: string;
 }
 
+/** Sales-first IA: Operations (~60%) then Store Management (~40%) then Marketing. */
 const navigationGroups: NavGroup[] = [
   {
-    label: "General",
+    label: "Operations",
     items: [
       {
         icon: <LayoutDashboard size={20} />,
@@ -60,6 +52,11 @@ const navigationGroups: NavGroup[] = [
         label: "Orders",
         href: "/dashboard/orders",
       },
+      {
+        icon: <Contact size={20} />,
+        label: "Customers",
+        href: "/dashboard/customers",
+      },
       { icon: <Users size={20} />, label: "Users", href: "/dashboard/users" },
     ],
   },
@@ -67,9 +64,9 @@ const navigationGroups: NavGroup[] = [
     label: "Store Management",
     items: [
       {
-        icon: <Layers size={20} />,
-        label: "Product Types",
-        href: "/dashboard/product-types",
+        icon: <Tag size={20} />,
+        label: "Products",
+        href: "/dashboard/products",
       },
       {
         icon: <FolderTree size={20} />,
@@ -77,9 +74,14 @@ const navigationGroups: NavGroup[] = [
         href: "/dashboard/categories",
       },
       {
-        icon: <Tag size={20} />,
-        label: "Products",
-        href: "/dashboard/products",
+        icon: <Layers size={20} />,
+        label: "Product Types",
+        href: "/dashboard/product-types",
+      },
+      {
+        icon: <Library size={20} />,
+        label: "Collections",
+        href: "/dashboard/collections",
       },
       { icon: <Car size={20} />, label: "Cars", href: "/dashboard/cars" },
       {
@@ -97,47 +99,35 @@ const navigationGroups: NavGroup[] = [
         label: "Promo Codes",
         href: "/dashboard/promo-codes",
       },
-      // { icon: <TicketIcon size={20} />, label: "Coupon Codes", href: "/dashboard/coupons" },
-      // { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
+      {
+        icon: <Zap size={20} />,
+        label: "Product Discounts",
+        href: "/dashboard/discounts",
+      },
+      {
+        icon: <FileText size={20} />,
+        label: "CMS",
+        href: "/dashboard/cms",
+      },
     ],
   },
   {
-    label: "In-Store",
+    label: "Settings",
     items: [
       {
-        icon: <ShoppingBag size={20} />,
-        label: "New Sale",
-        href: "/dashboard/in-store",
-      },
-      {
-        icon: <Contact size={20} />,
-        label: "Customers",
-        href: "/dashboard/in-store/customers",
+        icon: <Settings size={20} />,
+        label: "Admin Settings",
+        href: "/dashboard/admin-settings",
       },
     ],
   },
-  // {
-  //   label: "Content Management",
-  //   items: [
-  //     { icon: <FileText size={20} />, label: "CMS", href: "/dashboard/cms" },
-  //     { icon: <Shield size={20} />, label: "Legal CMS", href: "/dashboard/legal-cms" },
-  //   ],
-  // },
-  // {
-  //   label: "Marketing",
-  //   items: [
-  //     { icon: <TicketIcon size={20} />, label: "Coupon Codes", href: "/dashboard/coupons" },
-  //     { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
-  //   ],
-  // },
-  // {
-  //   label: "Configuration",
-  //   items: [
-  //     { icon: <UserCog size={20} />, label: "Admin Management", href: "/dashboard/admins" },
-  //     // { icon: <Settings size={20} />, label: "Settings", href: "/dashboard/settings" },
-  //   ],
-  // },
 ];
+
+const STORE_STAFF_HREFS = new Set([
+  "/dashboard",
+  "/dashboard/orders",
+  "/dashboard/customers",
+]);
 
 export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -145,12 +135,20 @@ export function Sidebar() {
   const { role } = useMockRole();
   const pathname = usePathname();
 
-  const isActive = (href: string) => pathname === href;
+  const isActive = (href: string) => {
+    if (href === "/dashboard") return pathname === "/dashboard";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
 
-  // Mock scoping: store_staff only needs order entry + customer search.
+  // store_staff: Operations counter tools only (Dashboard, Orders, Customers).
   const visibleGroups =
     role === "store_staff"
-      ? navigationGroups.filter((group) => group.label === "In-Store")
+      ? navigationGroups
+          .filter((group) => group.label === "Operations")
+          .map((group) => ({
+            ...group,
+            items: group.items.filter((item) => STORE_STAFF_HREFS.has(item.href)),
+          }))
       : navigationGroups;
 
   return (

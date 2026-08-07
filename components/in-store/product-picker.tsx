@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * API-backed product picker for the in-store New Sale flow.
+ * API-backed product picker for Offline / WhatsApp order entry.
  *
  * Data sources (all real backend endpoints, no mock data):
  * - Products:   GET /admin/products  (search, category, car fitment filters)

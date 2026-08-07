@@ -20,6 +20,7 @@ import {
   useMemo,
   useCallback,
 } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import OrdersLoading from "./loading";
 import {
@@ -50,6 +51,26 @@ import {
   CancelOrderModal,
   RefundOrderModal,
 } from "@/components/order-action-modals";
+import { AllOrdersContent } from "@/components/orders/all-orders-content";
+import { settingsService } from "@/lib/services/settings.service";
+import { formatMoney } from "@/lib/dashboard-utils";
+
+function displayOrderCurrency(orderCurrency?: string | null): string {
+  const store =
+    settingsService.getSelectedStore()?.currencyCode?.toUpperCase() || "JOD";
+  const raw = (orderCurrency || "").trim().toUpperCase();
+  if (!raw) return store;
+  if (raw !== store) return store;
+  return raw;
+}
+
+/** Guest checkouts also appear on GET /admin/orders with empty customer; hide those on the user-only list. */
+function isRegisteredCustomerOrder(o: Order): boolean {
+  const email = o.customer?.email?.trim();
+  const name =
+    `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`.trim();
+  return Boolean(email || name);
+}
 
 const orderStatusDescriptions = {
   pending: "Order created, waiting for payment",
@@ -117,87 +138,6 @@ function getPaymentColor(status: string) {
 }
 
 type OrderKind = "user" | "guest";
-
-interface UnifiedOrderRow {
-  id: string;
-  orderNumber: string;
-  orderType: OrderKind;
-  customerName: string;
-  customerEmail: string;
-  totalAmount: number;
-  currency: string;
-  paymentMethodType: string | null;
-  paymentMethodLabel: string;
-  paymentStatus: string;
-  status: string;
-  createdAt: string;
-}
-
-function orderToUnified(o: Order): UnifiedOrderRow {
-  const name = `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`.trim();
-  return {
-    id: o.id,
-    orderNumber: o.orderNumber,
-    orderType: "user",
-    customerName: name || "—",
-    customerEmail: o.customer?.email || "—",
-    totalAmount: Number(o.totalAmount || 0),
-    currency: o.currency,
-    paymentMethodType: o.paymentMethod?.type ?? null,
-    paymentMethodLabel: getPaymentMethodLabel(o.paymentMethod?.type),
-    paymentStatus: o.payment?.status || "pending",
-    status: o.status,
-    createdAt: o.createdAt,
-  };
-}
-
-function guestOrderToUnified(g: GuestOrder): UnifiedOrderRow {
-  const pm = g.paymentMethod || null;
-  return {
-    id: g.id,
-    orderNumber: g.orderNumber,
-    orderType: "guest",
-    customerName: "Guest",
-    customerEmail: g.guestEmail || "—",
-    totalAmount: Number(g.totalAmount || 0),
-    currency: g.currencyCode,
-    paymentMethodType: pm,
-    paymentMethodLabel: getPaymentMethodLabel(pm),
-    paymentStatus: "—",
-    status: g.status,
-    createdAt: g.createdAt,
-  };
-}
-
-/** Guest checkouts also appear on GET /admin/orders with empty customer; hide those on the user-only list. */
-function isRegisteredCustomerOrder(o: Order): boolean {
-  const email = o.customer?.email?.trim();
-  const name =
-    `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`.trim();
-  return Boolean(email || name);
-}
-
-/**
- * Same physical guest order is returned by both /admin/orders and /admin/orders/guest.
- * Prefer the guest row and drop the user-list copy (matched by orderNumber).
- */
-function mergeUserAndGuestForUnified(
-  userItems: Order[],
-  guestItems: GuestOrder[]
-): UnifiedOrderRow[] {
-  const guestOrderNumbers = new Set(guestItems.map((g) => g.orderNumber));
-  const userWithoutGuestDupes = userItems.filter(
-    (o) => !guestOrderNumbers.has(o.orderNumber)
-  );
-  return [
-    ...userWithoutGuestDupes.map(orderToUnified),
-    ...guestItems.map(guestOrderToUnified),
-  ].sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-}
-
 function OrderTypeBadge({ orderType }: { orderType: OrderKind }) {
   if (orderType === "user") {
     return (
@@ -414,11 +354,25 @@ function OrdersContent() {
 
   const filteredOrders = orders.filter(
     (order) =>
-      (searchTerm === "" ||
-        order.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.customer?.email
-          ?.toLowerCase()
-          .includes(searchTerm.toLowerCase())) &&
+      (() => {
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return true;
+        const name =
+          `${order.customer?.firstName || ""} ${order.customer?.lastName || ""}`
+            .trim()
+            .toLowerCase();
+        const email = (order.customer?.email || "").toLowerCase();
+        const phone = (order.customer?.phone || "")
+          .replace(/[\s\-()]/g, "")
+          .toLowerCase();
+        const phoneQ = q.replace(/[\s\-()]/g, "");
+        return (
+          order.orderNumber?.toLowerCase().includes(q) ||
+          email.includes(q) ||
+          name.includes(q) ||
+          (phoneQ.length > 0 && phone.includes(phoneQ))
+        );
+      })() &&
       (selectedStatuses.length === 0 ||
         selectedStatuses.includes(order.status)) &&
       (selectedPaymentMethods.length === 0 ||
@@ -497,7 +451,7 @@ function OrdersContent() {
             size={18}
           />
           <Input
-            placeholder="Search order # or email..."
+            placeholder="Search order #, name, email, or phone..."
             className="pl-10"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -676,6 +630,11 @@ function OrdersContent() {
                   ? `No orders match "${searchTerm}". Try a different search term.`
                   : "No orders yet. Create your first order to get started."}
               </p>
+              {!searchTerm && (
+                <Button asChild className="mt-4">
+                  <Link href="/dashboard/orders/new">New order</Link>
+                </Button>
+              )}
             </div>
           </div>
         ) : (
@@ -749,8 +708,10 @@ function OrdersContent() {
                   )}
                   {visibleColumns.total && (
                     <td className="py-4 px-6 font-semibold">
-                      {order.currency}{" "}
-                      {Number(order?.totalAmount || 0).toFixed(2)}
+                      {formatMoney(
+                        Number(order?.totalAmount || 0),
+                        displayOrderCurrency(order.currency)
+                      )}
                     </td>
                   )}
                   {visibleColumns.paymentMethod && (
@@ -900,667 +861,6 @@ function OrdersContent() {
         orderId={selectedOrderId}
         orderTotal={selectedOrderTotal}
         onSuccess={refreshOrders}
-      />
-    </div>
-  );
-}
-
-function AllOrdersContent() {
-  const router = useRouter();
-  const [mergedRows, setMergedRows] = useState<UnifiedOrderRow[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<
-    string[]
-  >([]);
-  const [page, setPage] = useState(1);
-  const limit = 20;
-
-  const [shipModalOpen, setShipModalOpen] = useState(false);
-  const [deliverModalOpen, setDeliverModalOpen] = useState(false);
-  const [cancelModalOpen, setCancelModalOpen] = useState(false);
-  const [refundModalOpen, setRefundModalOpen] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState("");
-  const [selectedOrderTotal, setSelectedOrderTotal] = useState(0);
-
-  const storeId = "19bf2cb6-1b50-4b95-80d6-9da6560588fc";
-
-  const [visibleColumns, setVisibleColumns] = useState({
-    orderNumber: true,
-    orderType: true,
-    customerEmail: true,
-    total: true,
-    paymentMethod: true,
-    paymentStatus: true,
-    status: true,
-    createdAt: true,
-  });
-
-  const statusOptions = [
-    "pending",
-    "confirmed",
-    "processing",
-    "shipped",
-    "delivered",
-    "cancelled",
-    "refunded",
-  ];
-
-  const paymentMethodOptions = [
-    "credit_card",
-    "cod",
-    "cliq",
-    "card_on_delivery",
-  ];
-
-  const loadMerged = useCallback(async () => {
-    const userExtra: {
-      status?: OrdersListParams["status"];
-      payment_method?: string;
-    } = {};
-    if (selectedStatuses.length === 1) {
-      userExtra.status = selectedStatuses[0].toLowerCase() as OrdersListParams["status"];
-    }
-    if (selectedPaymentMethods.length === 1) {
-      userExtra.payment_method = selectedPaymentMethods[0].toLowerCase();
-    }
-    const guestExtra: { status?: GuestOrdersListParams["status"] } = {};
-    if (selectedStatuses.length === 1) {
-      guestExtra.status = selectedStatuses[0] as GuestOrdersListParams["status"];
-    }
-    const [userItems, guestItems] = await Promise.all([
-      fetchAllUserOrderItems(storeId, userExtra),
-      fetchAllGuestOrderItems(storeId, guestExtra),
-    ]);
-    setMergedRows(mergeUserAndGuestForUnified(userItems, guestItems));
-  }, [storeId, selectedStatuses, selectedPaymentMethods]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setIsLoading(true);
-        await loadMerged();
-        if (cancelled) return;
-      } catch (error: any) {
-        if (!cancelled) {
-          toast.error(error.message || "Failed to load orders");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadMerged]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [searchTerm, selectedStatuses, selectedPaymentMethods]);
-
-  const refreshAll = async () => {
-    try {
-      await loadMerged();
-    } catch (error: any) {
-      toast.error(error.message || "Failed to refresh orders");
-    }
-  };
-
-  const toggleColumn = (column: keyof typeof visibleColumns) => {
-    setVisibleColumns((prev) => ({
-      ...prev,
-      [column]: !prev[column],
-    }));
-  };
-
-  const toggleStatus = (status: string) => {
-    setSelectedStatuses((prev) =>
-      prev.includes(status)
-        ? prev.filter((s) => s !== status)
-        : [...prev, status]
-    );
-  };
-
-  const togglePaymentMethod = (method: string) => {
-    setSelectedPaymentMethods((prev) =>
-      prev.includes(method)
-        ? prev.filter((m) => m !== method)
-        : [...prev, method]
-    );
-  };
-
-  const clearFilters = () => {
-    setSelectedStatuses([]);
-    setSelectedPaymentMethods([]);
-  };
-
-  const filteredRows = useMemo(
-    () =>
-      mergedRows.filter((row) => {
-        const matchesSearch =
-          searchTerm === "" ||
-          row.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          row.customerEmail
-            ?.toLowerCase()
-            .includes(searchTerm.toLowerCase());
-        const matchesStatus =
-          selectedStatuses.length === 0 ||
-          selectedStatuses.includes(row.status);
-        const pm = row.paymentMethodType?.toLowerCase() ?? null;
-        const matchesPayment =
-          selectedPaymentMethods.length === 0 ||
-          (pm != null && selectedPaymentMethods.includes(pm));
-        return matchesSearch && matchesStatus && matchesPayment;
-      }),
-    [mergedRows, searchTerm, selectedStatuses, selectedPaymentMethods]
-  );
-
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / limit));
-
-  useEffect(() => {
-    setPage((p) => Math.min(p, totalPages));
-  }, [totalPages]);
-
-  const safePage = Math.min(page, totalPages);
-  const pageSlice = filteredRows.slice(
-    (safePage - 1) * limit,
-    safePage * limit
-  );
-
-  const openShipModal = (orderId: string) => {
-    setSelectedOrderId(orderId);
-    setShipModalOpen(true);
-  };
-  const openDeliverModal = (orderId: string) => {
-    setSelectedOrderId(orderId);
-    setDeliverModalOpen(true);
-  };
-  const openCancelModal = (orderId: string) => {
-    setSelectedOrderId(orderId);
-    setCancelModalOpen(true);
-  };
-  const openRefundModal = (orderId: string, totalAmt: number) => {
-    setSelectedOrderId(orderId);
-    setSelectedOrderTotal(totalAmt);
-    setRefundModalOpen(true);
-  };
-
-  const goOrderDetail = (row: UnifiedOrderRow) => {
-    if (row.orderType === "guest") {
-      router.push(`/dashboard/orders/${row.id}?guest=true`);
-    } else {
-      router.push(`/dashboard/orders/${row.id}`);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      {(selectedStatuses.length > 0 || selectedPaymentMethods.length > 0) && (
-        <div className="flex gap-2 items-center flex-wrap">
-          {selectedStatuses.map((status) => (
-            <div
-              key={status}
-              className="flex items-center gap-2 bg-primary/20 text-primary px-3 py-1 rounded-full text-sm"
-            >
-              Status: {status}
-              <button
-                type="button"
-                onClick={() => toggleStatus(status)}
-                className="hover:opacity-70"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-          {selectedPaymentMethods.map((method) => (
-            <div
-              key={method}
-              className="flex items-center gap-2 bg-blue-900/20 text-blue-300 px-3 py-1 rounded-full text-sm"
-            >
-              Payment: {getPaymentMethodLabel(method)}
-              <button
-                type="button"
-                onClick={() => togglePaymentMethod(method)}
-                className="hover:opacity-70"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearFilters}
-            className="text-muted-foreground"
-          >
-            Reset All
-          </Button>
-        </div>
-      )}
-
-      <div className="flex gap-3 items-center">
-        <div className="flex-1 relative">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            size={18}
-          />
-          <Input
-            placeholder="Search order # or email..."
-            className="pl-10"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <Filter size={18} />
-              Status
-              {selectedStatuses.length > 0 && (
-                <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                  {selectedStatuses.length}
-                </span>
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56 p-4">
-            <div className="space-y-3 max-h-64 overflow-y-auto">
-              {statusOptions.map((status) => (
-                <label
-                  key={status}
-                  className="flex items-center gap-3 cursor-pointer hover:opacity-80"
-                >
-                  <Checkbox
-                    checked={selectedStatuses.includes(status)}
-                    onCheckedChange={() => toggleStatus(status)}
-                  />
-                  <span className="text-sm capitalize">{status}</span>
-                </label>
-              ))}
-            </div>
-            {selectedStatuses.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-border">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedStatuses([])}
-                  className="w-full text-muted-foreground"
-                >
-                  Clear filters
-                </Button>
-              </div>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <DollarSign size={18} />
-              Payment
-              {selectedPaymentMethods.length > 0 && (
-                <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                  {selectedPaymentMethods.length}
-                </span>
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56 p-4">
-            <div className="space-y-3 max-h-64 overflow-y-auto">
-              {paymentMethodOptions.map((method) => (
-                <label
-                  key={method}
-                  className="flex items-center gap-3 cursor-pointer hover:opacity-80"
-                >
-                  <Checkbox
-                    checked={selectedPaymentMethods.includes(method)}
-                    onCheckedChange={() => togglePaymentMethod(method)}
-                  />
-                  <span className="text-sm">
-                    {getPaymentMethodLabel(method)}
-                  </span>
-                </label>
-              ))}
-            </div>
-            {selectedPaymentMethods.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-border">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedPaymentMethods([])}
-                  className="w-full text-muted-foreground"
-                >
-                  Clear filters
-                </Button>
-              </div>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              View
-              <ChevronDown size={16} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 p-4">
-            <div className="text-sm font-semibold mb-3 text-foreground">
-              Toggle columns
-            </div>
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.orderNumber}
-                  onCheckedChange={() => toggleColumn("orderNumber")}
-                />
-                <span className="text-sm">OrderNumber</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.orderType}
-                  onCheckedChange={() => toggleColumn("orderType")}
-                />
-                <span className="text-sm">Order type</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.customerEmail}
-                  onCheckedChange={() => toggleColumn("customerEmail")}
-                />
-                <span className="text-sm">CustomerEmail</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.total}
-                  onCheckedChange={() => toggleColumn("total")}
-                />
-                <span className="text-sm">Total</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.paymentMethod}
-                  onCheckedChange={() => toggleColumn("paymentMethod")}
-                />
-                <span className="text-sm">Payment Method</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.paymentStatus}
-                  onCheckedChange={() => toggleColumn("paymentStatus")}
-                />
-                <span className="text-sm">Payment Status</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.status}
-                  onCheckedChange={() => toggleColumn("status")}
-                />
-                <span className="text-sm">Status</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer hover:opacity-80">
-                <Checkbox
-                  checked={visibleColumns.createdAt}
-                  onCheckedChange={() => toggleColumn("createdAt")}
-                />
-                <span className="text-sm">CreatedAt</span>
-              </label>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <div className="border border-border rounded-lg overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </div>
-        ) : pageSlice.length === 0 ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <p className="text-lg font-semibold text-foreground mb-2">
-                No orders found
-              </p>
-              <p className="text-muted-foreground">
-                {searchTerm
-                  ? `No orders match "${searchTerm}". Try a different search term.`
-                  : "No orders yet."}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                {visibleColumns.orderNumber && (
-                  <th className="text-left py-4 px-6 font-semibold">Order #</th>
-                )}
-                {visibleColumns.orderType && (
-                  <th className="text-left py-4 px-6 font-semibold">
-                    Order type
-                  </th>
-                )}
-                {visibleColumns.customerEmail && (
-                  <th className="text-left py-4 px-6 font-semibold">
-                    Customer
-                  </th>
-                )}
-                {visibleColumns.total && (
-                  <th className="text-left py-4 px-6 font-semibold">Total</th>
-                )}
-                {visibleColumns.paymentMethod && (
-                  <th className="text-left py-4 px-6 font-semibold">
-                    Payment Method
-                  </th>
-                )}
-                {visibleColumns.paymentStatus && (
-                  <th className="text-left py-4 px-6 font-semibold">
-                    Payment Status
-                  </th>
-                )}
-                {visibleColumns.status && (
-                  <th className="text-left py-4 px-6 font-semibold">
-                    Order Status
-                  </th>
-                )}
-                {visibleColumns.createdAt && (
-                  <th className="text-left py-4 px-6 font-semibold">
-                    Created At
-                  </th>
-                )}
-                <th className="text-left py-4 px-6 font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageSlice.map((row) => (
-                <tr
-                  key={`${row.orderType}-${row.id}`}
-                  className="border-b border-border hover:bg-primary/5 transition"
-                >
-                  {visibleColumns.orderNumber && (
-                    <td className="py-4 px-6 font-medium">{row.orderNumber}</td>
-                  )}
-                  {visibleColumns.orderType && (
-                    <td className="py-4 px-6">
-                      <OrderTypeBadge orderType={row.orderType} />
-                    </td>
-                  )}
-                  {visibleColumns.customerEmail && (
-                    <td className="py-4 px-6">
-                      <div className="font-medium">{row.customerName}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.customerEmail}
-                      </div>
-                    </td>
-                  )}
-                  {visibleColumns.total && (
-                    <td className="py-4 px-6 font-semibold">
-                      {row.currency} {row.totalAmount.toFixed(2)}
-                    </td>
-                  )}
-                  {visibleColumns.paymentMethod && (
-                    <td className="py-4 px-6">
-                      <span className="text-sm">{row.paymentMethodLabel}</span>
-                    </td>
-                  )}
-                  {visibleColumns.paymentStatus && (
-                    <td className="py-4 px-6">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium ${getPaymentColor(
-                          row.paymentStatus
-                        )}`}
-                      >
-                        {row.paymentStatus === "—"
-                          ? "—"
-                          : row.paymentStatus.charAt(0).toUpperCase() +
-                            row.paymentStatus.slice(1)}
-                      </span>
-                    </td>
-                  )}
-                  {visibleColumns.status && (
-                    <td className="py-4 px-6">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                          row.status
-                        )}`}
-                      >
-                        {row.status.charAt(0).toUpperCase() +
-                          row.status.slice(1)}
-                      </span>
-                    </td>
-                  )}
-                  {visibleColumns.createdAt && (
-                    <td className="py-4 px-6 text-muted-foreground">
-                      {new Date(row.createdAt).toLocaleString()}
-                    </td>
-                  )}
-                  <td className="py-4 px-6">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="gap-1">
-                          Actions
-                          <ChevronDown size={14} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuItem onClick={() => goOrderDetail(row)}>
-                          View Details
-                        </DropdownMenuItem>
-                        {row.status === "pending" && (
-                          <DropdownMenuItem
-                            onClick={() => openCancelModal(row.id)}
-                            className="text-red-400"
-                          >
-                            <XCircle size={16} className="mr-2" />
-                            Cancel Order
-                          </DropdownMenuItem>
-                        )}
-                        {(row.status === "confirmed" ||
-                          row.status === "processing") && (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => openShipModal(row.id)}
-                              className="text-blue-400"
-                            >
-                              <Truck size={16} className="mr-2" />
-                              Ship Order
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => openCancelModal(row.id)}
-                              className="text-red-400"
-                            >
-                              <XCircle size={16} className="mr-2" />
-                              Cancel Order
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        {row.status === "shipped" && (
-                          <DropdownMenuItem
-                            onClick={() => openDeliverModal(row.id)}
-                            className="text-green-400"
-                          >
-                            <CheckCircle size={16} className="mr-2" />
-                            Mark as Delivered
-                          </DropdownMenuItem>
-                        )}
-                        {row.status === "delivered" && (
-                          <DropdownMenuItem
-                            onClick={() =>
-                              openRefundModal(row.id, row.totalAmount)
-                            }
-                            className="text-orange-400"
-                          >
-                            <DollarSign size={16} className="mr-2" />
-                            Process Refund
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-2">
-          <p className="text-sm text-muted-foreground">
-            Showing {(safePage - 1) * limit + 1}–
-            {Math.min(safePage * limit, filteredRows.length)} of{" "}
-            {filteredRows.length} orders
-          </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={safePage === 1}
-            >
-              Previous
-            </Button>
-            <span className="flex items-center text-sm px-3">
-              {safePage} / {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage === totalPages}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <ShipOrderModal
-        isOpen={shipModalOpen}
-        onClose={() => setShipModalOpen(false)}
-        orderId={selectedOrderId}
-        onSuccess={refreshAll}
-      />
-      <DeliverOrderModal
-        isOpen={deliverModalOpen}
-        onClose={() => setDeliverModalOpen(false)}
-        orderId={selectedOrderId}
-        onSuccess={refreshAll}
-      />
-      <CancelOrderModal
-        isOpen={cancelModalOpen}
-        onClose={() => setCancelModalOpen(false)}
-        orderId={selectedOrderId}
-        onSuccess={refreshAll}
-      />
-      <RefundOrderModal
-        isOpen={refundModalOpen}
-        onClose={() => setRefundModalOpen(false)}
-        orderId={selectedOrderId}
-        orderTotal={selectedOrderTotal}
-        onSuccess={refreshAll}
       />
     </div>
   );
@@ -1751,7 +1051,12 @@ function GuestOrdersContent() {
                   <td className="py-4 px-6">{order.guestEmail}</td>
                   <td className="py-4 px-6 text-muted-foreground">{order.guestPhone}</td>
                   <td className="py-4 px-6">{order.itemCount}</td>
-                  <td className="py-4 px-6 font-semibold">{order.currencyCode} {Number(order.totalAmount).toFixed(2)}</td>
+                  <td className="py-4 px-6 font-semibold">
+                    {formatMoney(
+                      Number(order.totalAmount),
+                      displayOrderCurrency(order.currencyCode)
+                    )}
+                  </td>
                   <td className="py-4 px-6">{getPaymentMethodLabel(order.paymentMethod)}</td>
                   <td className="py-4 px-6">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
@@ -1829,31 +1134,44 @@ function GuestOrdersContent() {
   );
 }
 
+function ChannelOrdersPage() {
+  const [channelTab, setChannelTab] = useState<
+    "all" | "online" | "in_store" | "whatsapp"
+  >("all");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Orders</h1>
+        <p className="text-muted-foreground mt-1">
+          Track and manage orders by sales channel.
+        </p>
+      </div>
+      <Tabs
+        value={channelTab}
+        onValueChange={(v) =>
+          setChannelTab(v as "all" | "online" | "in_store" | "whatsapp")
+        }
+      >
+        <TabsList>
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="online">Online</TabsTrigger>
+          <TabsTrigger value="in_store">In-Store</TabsTrigger>
+          <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      <AllOrdersContent
+        channel={channelTab}
+        onChannelChange={setChannelTab}
+      />
+    </div>
+  );
+}
+
 export default function OrdersPage() {
   return (
     <Suspense fallback={<OrdersLoading />}>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Orders</h1>
-          <p className="text-muted-foreground mt-1">Track and manage orders here.</p>
-        </div>
-        <Tabs defaultValue="all">
-          <TabsList>
-            <TabsTrigger value="all">All orders</TabsTrigger>
-            <TabsTrigger value="user">User orders</TabsTrigger>
-            <TabsTrigger value="guest">Guest orders</TabsTrigger>
-          </TabsList>
-          <TabsContent value="all" className="mt-6">
-            <AllOrdersContent />
-          </TabsContent>
-          <TabsContent value="user" className="mt-6">
-            <OrdersContent />
-          </TabsContent>
-          <TabsContent value="guest" className="mt-6">
-            <GuestOrdersContent />
-          </TabsContent>
-        </Tabs>
-      </div>
+      <ChannelOrdersPage />
     </Suspense>
   );
 }

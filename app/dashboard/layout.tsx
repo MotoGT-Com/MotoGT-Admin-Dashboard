@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes"
 import { SidebarProvider } from "@/components/sidebar-context"
 import { ProtectedRoute } from "@/components/protected-route"
 import { MockRoleProvider } from "@/lib/context/mock-role-context"
+import { NewOrderFab } from "@/components/new-order-fab"
 
 export default function DashboardLayout({
   children,
@@ -23,6 +24,7 @@ export default function DashboardLayout({
                   <div className="p-6">{children}</div>
                 </main>
               </div>
+              <NewOrderFab />
             </div>
           </SidebarProvider>
         </MockRoleProvider>

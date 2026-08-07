@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -51,12 +52,22 @@ import {
   Star,
   Download,
   Store as StoreIcon,
-  Globe,
   Loader2,
   Edit,
   Trash2,
   Calendar,
+  ExternalLink,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  FileDown,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,6 +76,26 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { productService, Product, sumVariantStock, getEffectiveStockQuantity } from "@/lib/services/product.service";
+import {
+  buildImportPreview,
+  buildStorefrontProductUrl,
+  CATALOG_STATUS_CLASS,
+  CATALOG_STATUS_LABELS,
+  cycleSort,
+  downloadCsv,
+  getCatalogStatus,
+  matchesCompletenessFilter,
+  sortProducts,
+  type CatalogStatus,
+  type CompletenessKey,
+  type ImportPreviewRow,
+  type ProductSortKey,
+} from "@/lib/products/catalog-helpers";
+import { MultiSelectFilter } from "@/components/products/multi-select-filter";
+import {
+  CompletenessDots,
+  CompletenessQuickFilters,
+} from "@/components/products/completeness-dots";
 import {
   productCarCompatibilityService,
   ProductCarCompatibility,
@@ -166,16 +197,38 @@ export default function ProductsPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-  const [filterCarBrand, setFilterCarBrand] = useState("any");
-  const [filterCarModel, setFilterCarModel] = useState("any");
+  const [filterCarBrands, setFilterCarBrands] = useState<string[]>([]);
+  const [filterCarModels, setFilterCarModels] = useState<string[]>([]);
   const [filterCarTrim, setFilterCarTrim] = useState("any");
   const [filterCarYear, setFilterCarYear] = useState("any");
   const [filterMake, setFilterMake] = useState("any");
   const [filterModel, setFilterModel] = useState("any");
   const [filterYear, setFilterYear] = useState("any");
   const [filterProductType, setFilterProductType] = useState("any");
-  const [filterCategory, setFilterCategory] = useState("any");
-  const [filterSubCategory, setFilterSubCategory] = useState("any");
+  const [filterCategories, setFilterCategories] = useState<string[]>([]);
+  const [filterSubCategories, setFilterSubCategories] = useState<string[]>([]);
+  const [filterStatuses, setFilterStatuses] = useState<CatalogStatus[]>([]);
+  const [completenessFilters, setCompletenessFilters] = useState<
+    CompletenessKey[]
+  >([]);
+  const [dateAddedFrom, setDateAddedFrom] = useState("");
+  const [dateAddedTo, setDateAddedTo] = useState("");
+  const [dateUpdatedFrom, setDateUpdatedFrom] = useState("");
+  const [dateUpdatedTo, setDateUpdatedTo] = useState("");
+  const [sortKey, setSortKey] = useState<ProductSortKey>(null);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [bulkStock, setBulkStock] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreviewRow[] | null>(
+    null,
+  );
+  const [importCommitting, setImportCommitting] = useState(false);
+  /** Full filtered set for export / client pagination when advanced filters are on */
+  const [filteredAllProducts, setFilteredAllProducts] = useState<Product[]>([]);
 
   // Product types
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
@@ -435,6 +488,113 @@ export default function ProductsPage() {
     return car?.id;
   };
 
+  const mapDisplay = (list: Product[]) =>
+    (Array.isArray(list) ? list : []).map((product: Product) => ({
+      ...product,
+      name: getProductName(product, selectedLanguage!.code),
+      description: getProductDescription(product, selectedLanguage!.code),
+      color: getProductColor(product, selectedLanguage!.code),
+      material: getProductMaterial(product, selectedLanguage!.code),
+      carInfo: getCarInfo(product),
+    }));
+
+  const applyClientFilters = (
+    list: Product[],
+    compatMap: Record<string, ProductCarCompatibility[]> = brandModelCompatMap
+  ) => {
+    let next = list;
+
+    // Multi brand/model only — single values already sent to the API
+    if (filterCarBrands.length > 1) {
+      const brands = new Set(filterCarBrands.map((b) => b.toLowerCase()));
+      next = next.filter(
+        (p) =>
+          (p.carCompatibility || []).some((c) =>
+            brands.has((c.carBrand || "").toLowerCase())
+          ) || (p.brand && brands.has(p.brand.toLowerCase()))
+      );
+    }
+
+    if (filterCarModels.length > 1) {
+      const models = new Set(filterCarModels.map((m) => m.toLowerCase()));
+      next = next.filter((p) =>
+        (p.carCompatibility || []).some((c) =>
+          models.has((c.carModel || "").toLowerCase())
+        )
+      );
+    }
+
+    if (
+      filterCarTrim !== "any" &&
+      filterCarBrands.length === 1 &&
+      filterCarModels.length === 1
+    ) {
+      const brandL = filterCarBrands[0].toLowerCase();
+      const modelL = filterCarModels[0].toLowerCase();
+      const trimL = filterCarTrim.toLowerCase();
+      next = next.filter((product) => {
+        const comps =
+          compatMap[product.id] || product.carCompatibility || [];
+        return comps.some((c) => {
+          const sameVehicle =
+            (c.carBrand || "").toLowerCase() === brandL &&
+            (c.carModel || "").toLowerCase() === modelL;
+          if (!sameVehicle) return false;
+          return (c.trim || "").trim().toLowerCase() === trimL;
+        });
+      });
+    }
+
+    if (filterStatuses.length > 0) {
+      const set = new Set(filterStatuses);
+      next = next.filter((p) => set.has(getCatalogStatus(p)));
+    }
+
+    if (completenessFilters.length > 0) {
+      next = next.filter((p) =>
+        matchesCompletenessFilter(p, completenessFilters)
+      );
+    }
+
+    const inRange = (iso: string, from: string, to: string) => {
+      const t = new Date(iso).getTime();
+      if (from && t < new Date(from).setHours(0, 0, 0, 0)) return false;
+      if (to && t > new Date(to).setHours(23, 59, 59, 999)) return false;
+      return true;
+    };
+
+    if (dateAddedFrom || dateAddedTo) {
+      next = next.filter((p) => inRange(p.createdAt, dateAddedFrom, dateAddedTo));
+    }
+    if (dateUpdatedFrom || dateUpdatedTo) {
+      next = next.filter((p) =>
+        inRange(p.updatedAt, dateUpdatedFrom, dateUpdatedTo)
+      );
+    }
+
+    return sortProducts(next, sortKey, sortOrder);
+  };
+
+  const fetchAllProductPages = async (
+    baseParams: Parameters<typeof productService.listProducts>[0]
+  ) => {
+    const all: Product[] = [];
+    let page = 1;
+    let totalPages = 1;
+    const maxPages = 25;
+    while (page <= totalPages && page <= maxPages) {
+      const response = await productService.listProducts({
+        ...baseParams,
+        page,
+        limit: 100,
+      });
+      all.push(...(Array.isArray(response.data) ? response.data : []));
+      totalPages = response.meta?.totalPages || 1;
+      page += 1;
+    }
+    return all;
+  };
+
   // Fetch products when store or language changes
   const fetchProducts = async () => {
     if (!selectedStore || !selectedLanguage) return;
@@ -442,88 +602,89 @@ export default function ProductsPage() {
     try {
       setLoading(true);
 
+      const singleBrand =
+        filterCarBrands.length === 1 ? filterCarBrands[0] : undefined;
+      const singleModel =
+        filterCarModels.length === 1 ? filterCarModels[0] : undefined;
+
+      const serverSortable =
+        sortKey === "price" ||
+        sortKey === "stockQuantity" ||
+        sortKey === "createdAt";
+
+      let isActiveParam: boolean | undefined;
+      if (filterStatuses.length === 1 && filterStatuses[0] === "active") {
+        isActiveParam = true;
+      } else if (filterStatuses.length === 1 && filterStatuses[0] === "archived") {
+        isActiveParam = false;
+      }
+
+      const needsClientPipeline =
+        filterCarBrands.length > 1 ||
+        filterCarModels.length > 1 ||
+        filterCarBrands.length === 0 && filterCarModels.length > 0 ||
+        completenessFilters.length > 0 ||
+        filterStatuses.some((s) => s === "draft" || s === "coming_soon") ||
+        filterStatuses.length > 1 ||
+        Boolean(dateAddedFrom || dateAddedTo || dateUpdatedFrom || dateUpdatedTo) ||
+        sortKey === "updatedAt" ||
+        (filterCarTrim !== "any" && Boolean(singleBrand && singleModel));
+
       const baseParams = {
         storeId: selectedStore.id,
         languageId: selectedLanguage.id,
         search: debouncedSearchQuery || undefined,
         productTypeId:
           filterProductType !== "any" ? filterProductType : undefined,
-        categoryId: filterCategory !== "any" ? filterCategory : undefined,
+        categoryId:
+          filterCategories.length > 0 ? filterCategories : undefined,
         subCategoryId:
-          filterSubCategory !== "any" ? filterSubCategory : undefined,
-        carBrand: filterCarBrand !== "any" ? filterCarBrand : undefined,
-        carModel: filterCarModel !== "any" ? filterCarModel : undefined,
+          filterSubCategories.length > 0 ? filterSubCategories : undefined,
+        carBrand: singleBrand,
+        carModel: singleModel,
         carId:
-          filterCarBrand !== "any" && filterCarModel !== "any"
-            ? getCarIdFromBrandModel(filterCarBrand, filterCarModel)
+          singleBrand && singleModel
+            ? getCarIdFromBrandModel(singleBrand, singleModel)
             : undefined,
         carYear: filterCarYear !== "any" ? parseInt(filterCarYear) : undefined,
+        isActive: isActiveParam,
+        sortBy: serverSortable ? sortKey! : "createdAt",
+        sortOrder: sortKey && serverSortable ? sortOrder : "desc",
       };
 
-      const mapDisplay = (list: Product[]) =>
-        (Array.isArray(list) ? list : []).map((product: Product) => ({
-          ...product,
-          name: getProductName(product, selectedLanguage.code),
-          description: getProductDescription(product, selectedLanguage.code),
-          color: getProductColor(product, selectedLanguage.code),
-          material: getProductMaterial(product, selectedLanguage.code),
-          carInfo: getCarInfo(product),
-        }));
-
-      // Production API may ignore carTrim — apply strict trim filter client-side.
-      const trimFilterActive =
-        filterCarTrim !== "any" &&
-        filterCarBrand !== "any" &&
-        filterCarModel !== "any";
-
-      if (trimFilterActive) {
-        const response = await productService.listProducts({
-          ...baseParams,
-          page: 1,
-          limit: 100,
-          carTrim: filterCarTrim,
-        });
-
-        const candidates = Array.isArray(response.data) ? response.data : [];
+      if (needsClientPipeline) {
+        const all = await fetchAllProductPages(baseParams);
         let compatMap = brandModelCompatMap;
 
-        const missing = candidates.filter((p) => !compatMap[p.id]);
-        if (missing.length > 0) {
-          const loaded = await Promise.all(
-            missing.map(async (p) => {
-              try {
-                const comps =
-                  await productCarCompatibilityService.listCompatibilities(
-                    p.id,
-                  );
-                return [p.id, comps] as const;
-              } catch {
-                return [p.id, [] as ProductCarCompatibility[]] as const;
-              }
-            }),
-          );
-          compatMap = { ...compatMap, ...Object.fromEntries(loaded) };
-          setBrandModelCompatMap(compatMap);
+        if (filterCarTrim !== "any" && singleBrand && singleModel) {
+          const missing = all.filter((p) => !compatMap[p.id]);
+          if (missing.length > 0) {
+            const loaded = await Promise.all(
+              missing.map(async (p) => {
+                try {
+                  const comps =
+                    await productCarCompatibilityService.listCompatibilities(
+                      p.id
+                    );
+                  return [p.id, comps] as const;
+                } catch {
+                  return [p.id, [] as ProductCarCompatibility[]] as const;
+                }
+              })
+            );
+            compatMap = { ...compatMap, ...Object.fromEntries(loaded) };
+            setBrandModelCompatMap(compatMap);
+          }
         }
 
-        const brandL = filterCarBrand.toLowerCase();
-        const modelL = filterCarModel.toLowerCase();
-        const trimL = filterCarTrim.toLowerCase();
-
-        const filtered = candidates.filter((product) => {
-          const comps = compatMap[product.id] || [];
-          return comps.some((c) => {
-            const sameVehicle =
-              (c.carBrand || "").toLowerCase() === brandL &&
-              (c.carModel || "").toLowerCase() === modelL;
-            if (!sameVehicle) return false;
-            return (c.trim || "").trim().toLowerCase() === trimL;
-          });
-        });
-
+        const filtered = applyClientFilters(mapDisplay(all), compatMap);
+        setFilteredAllProducts(filtered);
         const start = (currentPage - 1) * rowsPerPage;
-        setProducts(mapDisplay(filtered.slice(start, start + rowsPerPage)));
+        setProducts(filtered.slice(start, start + rowsPerPage));
         setTotalProducts(filtered.length);
+        setSelectedIds((ids) =>
+          ids.filter((id) => filtered.some((p) => p.id === id))
+        );
         return;
       }
 
@@ -533,8 +694,13 @@ export default function ProductsPage() {
         limit: rowsPerPage,
       });
 
-      setProducts(mapDisplay(response.data));
+      const mapped = mapDisplay(response.data);
+      setFilteredAllProducts(mapped);
+      setProducts(mapped);
       setTotalProducts(response.meta?.total ?? 0);
+      setSelectedIds((ids) =>
+        ids.filter((id) => mapped.some((p) => p.id === id))
+      );
     } catch (error: any) {
       console.error("Failed to fetch products:", error);
       toast.error("Error", {
@@ -549,7 +715,7 @@ export default function ProductsPage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery);
-    }, 500); // Wait 500ms after user stops typing
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -561,6 +727,7 @@ export default function ProductsPage() {
     if (selectedStore && selectedLanguage) {
       fetchProducts();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     authLoading,
     isAuthenticated,
@@ -568,12 +735,20 @@ export default function ProductsPage() {
     selectedLanguage,
     debouncedSearchQuery,
     filterProductType,
-    filterCategory,
-    filterSubCategory,
-    filterCarBrand,
-    filterCarModel,
+    filterCategories,
+    filterSubCategories,
+    filterCarBrands,
+    filterCarModels,
     filterCarTrim,
     filterCarYear,
+    filterStatuses,
+    completenessFilters,
+    dateAddedFrom,
+    dateAddedTo,
+    dateUpdatedFrom,
+    dateUpdatedTo,
+    sortKey,
+    sortOrder,
     currentPage,
     rowsPerPage,
   ]);
@@ -584,12 +759,20 @@ export default function ProductsPage() {
   }, [
     debouncedSearchQuery,
     filterProductType,
-    filterCategory,
-    filterSubCategory,
-    filterCarBrand,
-    filterCarModel,
+    filterCategories,
+    filterSubCategories,
+    filterCarBrands,
+    filterCarModels,
     filterCarTrim,
     filterCarYear,
+    filterStatuses,
+    completenessFilters,
+    dateAddedFrom,
+    dateAddedTo,
+    dateUpdatedFrom,
+    dateUpdatedTo,
+    sortKey,
+    sortOrder,
   ]);
 
   // Fetch categories when product type filter changes
@@ -618,12 +801,8 @@ export default function ProductsPage() {
         }));
 
         setCategories(categoriesWithNames);
-
-        // Reset category and subcategory filters when product type changes
-        if (filterProductType !== "any") {
-          setFilterCategory("any");
-          setFilterSubCategory("any");
-        }
+        setFilterCategories([]);
+        setFilterSubCategories([]);
       } catch (error: any) {
         console.error("Failed to fetch filtered categories:", error);
       }
@@ -632,14 +811,14 @@ export default function ProductsPage() {
     fetchFilteredCategories();
   }, [filterProductType, selectedStore, selectedLanguage]);
 
-  // Fetch car models when brand changes
+  // Fetch car models when brand selection changes
   useEffect(() => {
     const fetchModels = async () => {
-      if (filterCarBrand && filterCarBrand !== "any" && selectedStore) {
+      if (filterCarBrands.length === 1 && selectedStore) {
         try {
           const cars = await carService.listCars({
             store_id: selectedStore.id,
-            brand: filterCarBrand,
+            brand: filterCarBrands[0],
             limit: 1000,
           });
           const models = [...new Set(cars.map((car) => car.model))].sort();
@@ -648,9 +827,27 @@ export default function ProductsPage() {
           console.error("Failed to fetch car models:", error);
           setCarModels([]);
         }
+      } else if (filterCarBrands.length > 1 && selectedStore) {
+        try {
+          const nested = await Promise.all(
+            filterCarBrands.map((brand) =>
+              carService.listCars({
+                store_id: selectedStore.id,
+                brand,
+                limit: 1000,
+              })
+            )
+          );
+          const models = [
+            ...new Set(nested.flat().map((car) => car.model)),
+          ].sort();
+          setCarModels(models);
+        } catch {
+          setCarModels([]);
+        }
       } else {
         setCarModels([]);
-        setFilterCarModel("any");
+        setFilterCarModels([]);
         setFilterCarTrim("any");
         setFilterCarYear("any");
         setCarTrims([]);
@@ -658,16 +855,16 @@ export default function ProductsPage() {
       }
     };
     fetchModels();
-  }, [filterCarBrand, selectedStore]);
+  }, [filterCarBrands, selectedStore]);
 
-  // Fetch trims that still have at least one product for this brand + model
+  // Fetch trims when exactly one brand + one model selected
   useEffect(() => {
     let cancelled = false;
 
     const fetchTrims = async () => {
       if (
-        filterCarBrand === "any" ||
-        filterCarModel === "any" ||
+        filterCarBrands.length !== 1 ||
+        filterCarModels.length !== 1 ||
         !selectedStore ||
         !selectedLanguage
       ) {
@@ -678,13 +875,15 @@ export default function ProductsPage() {
         return;
       }
 
+      const brand = filterCarBrands[0];
+      const model = filterCarModels[0];
       setLoadingFilterTrims(true);
       try {
         const productList = await productService.listProducts({
           storeId: selectedStore.id,
           languageId: selectedLanguage.id,
-          carBrand: filterCarBrand,
-          carModel: filterCarModel,
+          carBrand: brand,
+          carModel: model,
           carYear:
             filterCarYear !== "any" ? parseInt(filterCarYear, 10) : undefined,
           page: 1,
@@ -699,13 +898,13 @@ export default function ProductsPage() {
             try {
               const comps =
                 await productCarCompatibilityService.listCompatibilities(
-                  product.id,
+                  product.id
                 );
               return [product.id, comps] as const;
             } catch {
               return [product.id, [] as ProductCarCompatibility[]] as const;
             }
-          }),
+          })
         );
 
         if (cancelled) return;
@@ -713,9 +912,8 @@ export default function ProductsPage() {
         const compatMap = Object.fromEntries(compatEntries);
         setBrandModelCompatMap(compatMap);
 
-        const brandL = filterCarBrand.toLowerCase();
-        const modelL = filterCarModel.toLowerCase();
-        // Only trims that appear on at least one product for this make/model
+        const brandL = brand.toLowerCase();
+        const modelL = model.toLowerCase();
         const trimsWithProducts = [
           ...new Set(
             compatEntries.flatMap(([, comps]) =>
@@ -723,11 +921,11 @@ export default function ProductsPage() {
                 .filter(
                   (c) =>
                     (c.carBrand || "").toLowerCase() === brandL &&
-                    (c.carModel || "").toLowerCase() === modelL,
+                    (c.carModel || "").toLowerCase() === modelL
                 )
                 .map((c) => (c.trim || "").trim())
-                .filter(Boolean),
-            ),
+                .filter(Boolean)
+            )
           ),
         ].sort((a, b) => a.localeCompare(b));
 
@@ -735,7 +933,7 @@ export default function ProductsPage() {
         setFilterCarTrim((current) =>
           current !== "any" && !trimsWithProducts.includes(current)
             ? "any"
-            : current,
+            : current
         );
       } catch (error) {
         if (!cancelled) {
@@ -755,8 +953,8 @@ export default function ProductsPage() {
       cancelled = true;
     };
   }, [
-    filterCarBrand,
-    filterCarModel,
+    filterCarBrands,
+    filterCarModels,
     filterCarYear,
     selectedStore,
     selectedLanguage,
@@ -770,18 +968,6 @@ export default function ProductsPage() {
       setCurrentPage(1); // Reset to first page
       toast.success("Store Changed", {
         description: `Switched to ${store.name}`,
-      });
-    }
-  };
-
-  const handleLanguageChange = (languageId: string) => {
-    const language = languages.find((l) => l.id === languageId);
-    if (language) {
-      setSelectedLanguage(language);
-      settingsService.setSelectedLanguage(languageId);
-      setCurrentPage(1); // Reset to first page
-      toast.success("Language Changed", {
-        description: `Switched to ${language.name}`,
       });
     }
   };
@@ -1467,20 +1653,258 @@ export default function ProductsPage() {
     }
   };
 
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setImportFile(file);
-      setImportResults(null);
+    if (!file) return;
+    setImportFile(file);
+    setImportResults(null);
+    try {
+      const text = await file.text();
+      const existing = new Set(
+        (filteredAllProducts.length ? filteredAllProducts : products).map(
+          (p) => p.itemCode
+        )
+      );
+      // Prefer scanning catalog item codes from a full fetch when possible
+      if (selectedStore && selectedLanguage) {
+        try {
+          const all = await fetchAllProductPages({
+            storeId: selectedStore.id,
+            languageId: selectedLanguage.id,
+            productTypeId:
+              filterProductType !== "any" ? filterProductType : undefined,
+          });
+          all.forEach((p) => existing.add(p.itemCode));
+        } catch {
+          /* use page set */
+        }
+      }
+      setImportPreview(buildImportPreview(text, existing));
+    } catch (err: any) {
+      toast.error("Could not read CSV", {
+        description: err?.message || "Invalid file",
+      });
+      setImportPreview(null);
     }
   };
 
-  const handleImportProducts = () => {
-    // TODO: Implement API integration for bulk import
-    toast.info("Coming Soon", {
-      description: "Bulk import functionality will be integrated with API",
-    });
-    setIsImportDialogOpen(false);
+  const handleImportProducts = async () => {
+    if (!importPreview || !selectedStore || !selectedLanguage) return;
+    const validRows = importPreview.filter((r) => r.valid);
+    if (validRows.length === 0) {
+      toast.error("No valid rows to import");
+      return;
+    }
+    if (!languages.length) {
+      toast.error("Languages not loaded");
+      return;
+    }
+
+    setImportCommitting(true);
+    let success = 0;
+    const errors: string[] = [];
+    try {
+      for (const row of validRows) {
+        try {
+          if (row.action === "update") {
+            errors.push(
+              `Row ${row.rowNumber}: update by itemCode (${row.itemCode}) skipped — use Export + edit in admin for updates`
+            );
+            continue;
+          }
+          const categoryId =
+            categories.find(
+              (c) =>
+                (c.name || "").toLowerCase() === row.category.toLowerCase()
+            )?.id || categories[0]?.id;
+          if (!categoryId) {
+            errors.push(
+              `Row ${row.rowNumber}: no matching category for "${row.category}"`
+            );
+            continue;
+          }
+          await productService.createProduct({
+            itemCode: row.itemCode,
+            storeId: selectedStore.id,
+            categoryId,
+            price: row.sellingPrice ?? 0,
+            stockQuantity: row.quantity ?? 0,
+            isActive: true,
+            translations: [
+              {
+                languageId: selectedLanguage.id,
+                name: row.name,
+                description: row.raw.description || undefined,
+              },
+            ],
+          });
+          success += 1;
+        } catch (err: any) {
+          errors.push(
+            `Row ${row.rowNumber} (${row.itemCode}): ${err?.message || "failed"}`
+          );
+        }
+      }
+      setImportResults({
+        success,
+        failed: errors.length,
+        errors,
+      });
+      toast.success("Import finished", {
+        description: `${success} created, ${errors.length} issues`,
+      });
+      fetchProducts();
+    } finally {
+      setImportCommitting(false);
+    }
+  };
+
+  const handleExportFiltered = async () => {
+    if (!selectedStore || !selectedLanguage) return;
+    setExporting(true);
+    try {
+      let rows = filteredAllProducts;
+      // If current page-only (server mode), re-fetch full filtered set
+      if (totalProducts > rows.length) {
+        const singleBrand =
+          filterCarBrands.length === 1 ? filterCarBrands[0] : undefined;
+        const singleModel =
+          filterCarModels.length === 1 ? filterCarModels[0] : undefined;
+        const all = await fetchAllProductPages({
+          storeId: selectedStore.id,
+          languageId: selectedLanguage.id,
+          search: debouncedSearchQuery || undefined,
+          productTypeId:
+            filterProductType !== "any" ? filterProductType : undefined,
+          categoryId:
+            filterCategories.length > 0 ? filterCategories : undefined,
+          subCategoryId:
+            filterSubCategories.length > 0 ? filterSubCategories : undefined,
+          carBrand: singleBrand,
+          carModel: singleModel,
+          carYear:
+            filterCarYear !== "any" ? parseInt(filterCarYear) : undefined,
+        });
+        rows = applyClientFilters(mapDisplay(all));
+      }
+
+      downloadCsv(
+        `products-export-${new Date().toISOString().slice(0, 10)}.csv`,
+        [
+          "itemCode",
+          "name",
+          "price",
+          "stock",
+          "status",
+          "categoryId",
+          "createdAt",
+          "updatedAt",
+          "storefrontUrl",
+        ],
+        rows.map((p) => [
+          p.itemCode,
+          p.name || "",
+          String(p.price),
+          String(getEffectiveStockQuantity(p)),
+          getCatalogStatus(p),
+          p.categoryId || "",
+          p.createdAt,
+          p.updatedAt,
+          buildStorefrontProductUrl(p),
+        ])
+      );
+      toast.success("Export ready", {
+        description: `${rows.length} products from the current filtered view`,
+      });
+    } catch (err: any) {
+      toast.error("Export failed", {
+        description: err?.message || "Could not export",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedIds.length === 0) return;
+    const price = bulkPrice.trim() ? Number(bulkPrice) : null;
+    const stock = bulkStock.trim() ? Number(bulkStock) : null;
+    if (price === null && stock === null) {
+      toast.error("Enter a price and/or stock value");
+      return;
+    }
+    if (price !== null && (Number.isNaN(price) || price < 0)) {
+      toast.error("Invalid price");
+      return;
+    }
+    if (stock !== null && (Number.isNaN(stock) || stock < 0)) {
+      toast.error("Invalid stock");
+      return;
+    }
+
+    setBulkSaving(true);
+    let ok = 0;
+    const errors: string[] = [];
+    try {
+      for (const id of selectedIds) {
+        try {
+          const payload: { price?: number; stockQuantity?: number } = {};
+          if (price !== null) payload.price = price;
+          if (stock !== null) payload.stockQuantity = stock;
+          await productService.updateProduct(id, payload);
+          ok += 1;
+        } catch (err: any) {
+          errors.push(`${id}: ${err?.message || "failed"}`);
+        }
+      }
+      toast.success(`Updated ${ok} products`, {
+        description:
+          errors.length > 0 ? `${errors.length} failed` : undefined,
+      });
+      setIsBulkDialogOpen(false);
+      setBulkPrice("");
+      setBulkStock("");
+      setSelectedIds([]);
+      fetchProducts();
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const toggleSortColumn = (key: Exclude<ProductSortKey, null>) => {
+    const next = cycleSort(sortKey, sortOrder, key);
+    setSortKey(next.key);
+    setSortOrder(next.order);
+  };
+
+  const SortableTh = ({
+    label,
+    column,
+  }: {
+    label: string;
+    column: Exclude<ProductSortKey, null>;
+  }) => {
+    const active = sortKey === column;
+    const Icon = !active
+      ? ArrowUpDown
+      : sortOrder === "asc"
+        ? ArrowUp
+        : ArrowDown;
+    return (
+      <th className="text-left py-3 px-4">
+        <button
+          type="button"
+          onClick={() => toggleSortColumn(column)}
+          className="inline-flex items-center gap-1.5 font-semibold hover:text-foreground"
+        >
+          {label}
+          <Icon
+            size={14}
+            className={active ? "text-primary" : "text-muted-foreground"}
+          />
+        </button>
+      </th>
+    );
   };
 
   const handleDownloadTemplate = () => {
@@ -1531,6 +1955,7 @@ export default function ProductsPage() {
     setIsImportDialogOpen(false);
     setImportFile(null);
     setImportResults(null);
+    setImportPreview(null);
     if (importFileInputRef.current) {
       importFileInputRef.current.value = "";
     }
@@ -1577,13 +2002,26 @@ export default function ProductsPage() {
             Manage your automotive accessories inventory
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleExportFiltered}
+            disabled={exporting || totalProducts === 0}
+          >
+            {exporting ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <FileDown size={18} />
+            )}
+            Export filtered
+          </Button>
           <Button
             variant="outline"
             className="gap-2"
             onClick={() => setIsImportDialogOpen(true)}
           >
-            <Download size={18} />
+            <Upload size={18} />
             Import
           </Button>
           <Button className="gap-2" onClick={() => handleOpenDialog()}>
@@ -1593,7 +2031,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Store and Language Selector */}
+      {/* Store Selector (language is auto-selected; not shown in UI) */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4">
@@ -1625,34 +2063,6 @@ export default function ProductsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-[200px] space-y-2">
-              <Label className="flex items-center gap-2">
-                <Globe size={16} />
-                Language
-              </Label>
-              <Select
-                value={selectedLanguage?.id || ""}
-                onValueChange={handleLanguageChange}
-                disabled={languages.length === 0}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue
-                    placeholder={
-                      languages.length === 0
-                        ? "No languages available"
-                        : "Select language"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {languages.map((language) => (
-                    <SelectItem key={language.id} value={language.id}>
-                      {language.name} ({language.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -1675,168 +2085,120 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {/* Row 2: Product Type and Category Filters */}
-        <div className="flex gap-4">
-          <div className="flex-1 min-w-[200px] space-y-2">
-            <Label className="flex items-center gap-2">
-              <Filter size={16} />
-              Product Type
-            </Label>
-            <Select
-              value={filterProductType}
-              onValueChange={(value) => {
-                setFilterProductType(value);
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="All Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="any">All Types</SelectItem>
-                {productTypes
-                  .filter((pt) => pt.isActive)
-                  .sort((a, b) => a.sortOrder - b.sortOrder)
-                  .map((type) => (
-                    <SelectItem key={type.id} value={type.id}>
-                      {type?.translations?.find(
-                        (t) => t.languageCode === selectedLanguage.code,
-                      )?.name ||
-                        type?.translations[0]?.name ||
-                        "Unnamed"}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Product Type tabs */}
+        <Tabs
+          value={filterProductType}
+          onValueChange={(value) => {
+            setFilterProductType(value);
+            setFilterCategories([]);
+            setFilterSubCategories([]);
+          }}
+        >
+          <TabsList className="h-auto flex-wrap">
+            <TabsTrigger value="any">All Types</TabsTrigger>
+            {productTypes
+              .filter((pt) => pt.isActive)
+              .sort((a, b) => a.sortOrder - b.sortOrder)
+              .map((type) => (
+                <TabsTrigger key={type.id} value={type.id}>
+                  {type?.translations?.find(
+                    (t) => t.languageCode === selectedLanguage.code,
+                  )?.name ||
+                    type?.translations[0]?.name ||
+                    "Unnamed"}
+                </TabsTrigger>
+              ))}
+          </TabsList>
+        </Tabs>
 
-          <div className="flex-1 min-w-[200px] space-y-2">
-            <Label className="flex items-center gap-2">
-              <Filter size={16} />
-              Category
-            </Label>
-            <Select
-              value={filterCategory}
-              onValueChange={(value) => {
-                setFilterCategory(value);
-                if (value === "any") {
-                  setFilterSubCategory("any");
-                }
-              }}
-              disabled={categories.length === 0}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="any">All Categories</SelectItem>
-                {categories.map((category) => (
-                  <SelectItem key={category.id} value={category.id}>
-                    {category.name || "Unnamed"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <CompletenessQuickFilters
+          active={completenessFilters}
+          onChange={(next) => {
+            setCompletenessFilters(next);
+            setCurrentPage(1);
+          }}
+        />
 
-          <div className="flex-1 min-w-[200px] space-y-2">
-            <Label className="flex items-center gap-2">
-              <Filter size={16} />
-              Subcategory
-            </Label>
-            <Select
-              value={filterSubCategory}
-              onValueChange={setFilterSubCategory}
-              disabled={
-                filterCategory === "any" ||
-                !categories.find((c) => c.id === filterCategory)?.subcategories
-                  ?.length
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="All Subcategories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="any">All Subcategories</SelectItem>
-                {filterCategory !== "any" &&
-                  categories
-                    .find((c) => c.id === filterCategory)
-                    ?.subcategories?.map((sub) => (
-                      <SelectItem key={sub.id} value={sub.id}>
-                        {sub.name || "Unnamed"}
-                      </SelectItem>
-                    ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex gap-4 flex-wrap">
+          <MultiSelectFilter
+            label="Category"
+            allLabel="All categories"
+            options={categories.map((c) => ({
+              value: c.id,
+              label: c.name || "Unnamed",
+            }))}
+            selected={filterCategories}
+            onChange={(next) => {
+              setFilterCategories(next);
+              setFilterSubCategories([]);
+            }}
+            disabled={categories.length === 0}
+          />
+          <MultiSelectFilter
+            label="Subcategory"
+            allLabel="All subcategories"
+            options={categories
+              .filter(
+                (c) =>
+                  filterCategories.length === 0 ||
+                  filterCategories.includes(c.id)
+              )
+              .flatMap(
+                (c) =>
+                  c.subcategories?.map((sub) => ({
+                    value: sub.id,
+                    label: sub.name || "Unnamed",
+                  })) || []
+              )}
+            selected={filterSubCategories}
+            onChange={setFilterSubCategories}
+            disabled={
+              filterCategories.length === 0 ||
+              !categories.some((c) =>
+                filterCategories.includes(c.id)
+                  ? (c.subcategories?.length || 0) > 0
+                  : false
+              )
+            }
+          />
+          <MultiSelectFilter
+            label="Status"
+            allLabel="All statuses"
+            options={(
+              Object.keys(CATALOG_STATUS_LABELS) as CatalogStatus[]
+            ).map((s) => ({
+              value: s,
+              label: CATALOG_STATUS_LABELS[s],
+            }))}
+            selected={filterStatuses}
+            onChange={(next) => setFilterStatuses(next as CatalogStatus[])}
+          />
         </div>
 
-        {/* Row 3: Car Brand, Model, Trim, and Year Filters */}
         <div className="flex gap-4 flex-wrap">
-          <div className="flex-1 min-w-[180px] space-y-2">
-            <Label className="flex items-center gap-2">
-              <Filter size={16} />
-              Car Brand
-            </Label>
-            <Select
-              value={filterCarBrand}
-              onValueChange={(value) => {
-                setFilterCarBrand(value);
-                if (value === "any") {
-                  setFilterCarModel("any");
-                  setFilterCarTrim("any");
-                  setFilterCarYear("any");
-                }
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="All Brands" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="any">All Brands</SelectItem>
-                {carBrands.map((brand) => (
-                  <SelectItem key={brand} value={brand}>
-                    {brand}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex-1 min-w-[180px] space-y-2">
-            <Label className="flex items-center gap-2">
-              <Filter size={16} />
-              Car Model
-            </Label>
-            <Select
-              value={filterCarModel}
-              onValueChange={(value) => {
-                setFilterCarModel(value);
-                setFilterCarTrim("any");
-                if (value === "any") {
-                  setFilterCarYear("any");
-                }
-              }}
-              disabled={filterCarBrand === "any" || carModels.length === 0}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue
-                  placeholder={
-                    filterCarBrand === "any"
-                      ? "Select brand first"
-                      : "All Models"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="any">All Models</SelectItem>
-                {carModels.map((model) => (
-                  <SelectItem key={model} value={model}>
-                    {model}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <MultiSelectFilter
+            label="Car Brand"
+            allLabel="All brands"
+            options={carBrands.map((b) => ({ value: b, label: b }))}
+            selected={filterCarBrands}
+            onChange={(next) => {
+              setFilterCarBrands(next);
+              setFilterCarModels([]);
+              setFilterCarTrim("any");
+              setFilterCarYear("any");
+            }}
+          />
+          <MultiSelectFilter
+            label="Car Model"
+            allLabel="All models"
+            options={carModels.map((m) => ({ value: m, label: m }))}
+            selected={filterCarModels}
+            onChange={(next) => {
+              setFilterCarModels(next);
+              setFilterCarTrim("any");
+            }}
+            disabled={filterCarBrands.length === 0 || carModels.length === 0}
+          />
 
           <div className="flex-1 min-w-[180px] space-y-2">
             <Label className="flex items-center gap-2">
@@ -1850,8 +2212,8 @@ export default function ProductsPage() {
               value={filterCarTrim}
               onValueChange={setFilterCarTrim}
               disabled={
-                filterCarBrand === "any" ||
-                filterCarModel === "any" ||
+                filterCarBrands.length !== 1 ||
+                filterCarModels.length !== 1 ||
                 loadingFilterTrims
               }
             >
@@ -1864,8 +2226,9 @@ export default function ProductsPage() {
                 ) : (
                   <SelectValue
                     placeholder={
-                      filterCarBrand === "any" || filterCarModel === "any"
-                        ? "Select brand & model first"
+                      filterCarBrands.length !== 1 ||
+                      filterCarModels.length !== 1
+                        ? "Select one brand & model"
                         : "All Trims"
                     }
                   />
@@ -1890,12 +2253,14 @@ export default function ProductsPage() {
             <Select
               value={filterCarYear}
               onValueChange={setFilterCarYear}
-              disabled={filterCarBrand === "any" || filterCarModel === "any"}
+              disabled={
+                filterCarBrands.length === 0 || filterCarModels.length === 0
+              }
             >
               <SelectTrigger className="w-full">
                 <SelectValue
                   placeholder={
-                    filterCarModel === "any"
+                    filterCarModels.length === 0
                       ? "Select model first"
                       : "All Years"
                   }
@@ -1914,39 +2279,102 @@ export default function ProductsPage() {
               </SelectContent>
             </Select>
           </div>
+        </div>
 
-          {(filterProductType !== "any" ||
-            filterCategory !== "any" ||
-            filterSubCategory !== "any" ||
-            filterCarBrand !== "any" ||
-            filterCarModel !== "any" ||
-            filterCarTrim !== "any" ||
-            filterCarYear !== "any") && (
-            <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setFilterProductType("any");
-                  setFilterCategory("any");
-                  setFilterSubCategory("any");
-                  setFilterCarBrand("any");
-                  setFilterCarModel("any");
-                  setFilterCarTrim("any");
-                  setFilterCarYear("any");
-                }}
-              >
-                Clear All Filters
-              </Button>
+        <div className="flex gap-4 flex-wrap items-end">
+          <div className="space-y-2">
+            <Label className="text-xs">Date added</Label>
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={dateAddedFrom}
+                onChange={(e) => setDateAddedFrom(e.target.value)}
+                className="w-[150px]"
+              />
+              <Input
+                type="date"
+                value={dateAddedTo}
+                onChange={(e) => setDateAddedTo(e.target.value)}
+                className="w-[150px]"
+              />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Last updated</Label>
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={dateUpdatedFrom}
+                onChange={(e) => setDateUpdatedFrom(e.target.value)}
+                className="w-[150px]"
+              />
+              <Input
+                type="date"
+                value={dateUpdatedTo}
+                onChange={(e) => setDateUpdatedTo(e.target.value)}
+                className="w-[150px]"
+              />
+            </div>
+          </div>
+          {(filterProductType !== "any" ||
+            filterCategories.length > 0 ||
+            filterSubCategories.length > 0 ||
+            filterCarBrands.length > 0 ||
+            filterCarModels.length > 0 ||
+            filterCarTrim !== "any" ||
+            filterCarYear !== "any" ||
+            filterStatuses.length > 0 ||
+            completenessFilters.length > 0 ||
+            dateAddedFrom ||
+            dateAddedTo ||
+            dateUpdatedFrom ||
+            dateUpdatedTo) && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFilterProductType("any");
+                setFilterCategories([]);
+                setFilterSubCategories([]);
+                setFilterCarBrands([]);
+                setFilterCarModels([]);
+                setFilterCarTrim("any");
+                setFilterCarYear("any");
+                setFilterStatuses([]);
+                setCompletenessFilters([]);
+                setDateAddedFrom("");
+                setDateAddedTo("");
+                setDateUpdatedFrom("");
+                setDateUpdatedTo("");
+                setSortKey(null);
+              }}
+            >
+              Clear All Filters
+            </Button>
           )}
         </div>
       </div>
 
       {/* Products Table */}
       <Card>
-        <CardHeader>
-          <CardTitle>All Products ({totalProducts})</CardTitle>
-          <CardDescription>Manage your product catalog</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle>All Products ({totalProducts})</CardTitle>
+            <CardDescription>
+              Manage your product catalog
+              {selectedIds.length > 0
+                ? ` · ${selectedIds.length} selected`
+                : ""}
+            </CardDescription>
+          </div>
+          {selectedIds.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsBulkDialogOpen(true)}
+            >
+              Bulk price / stock
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {products.length === 0 ? (
@@ -1958,26 +2386,27 @@ export default function ProductsPage() {
               <p className="text-muted-foreground mb-6 max-w-md">
                 {searchQuery ||
                 filterProductType !== "any" ||
-                filterCategory !== "any" ||
-                filterSubCategory !== "any"
+                filterCategories.length > 0 ||
+                completenessFilters.length > 0
                   ? "Try adjusting your search or filters to find what you're looking for."
                   : "Get started by adding your first product to the inventory."}
               </p>
               <div className="flex gap-3">
                 {(searchQuery ||
                   filterProductType !== "any" ||
-                  filterCategory !== "any" ||
-                  filterSubCategory !== "any") && (
+                  filterCategories.length > 0 ||
+                  completenessFilters.length > 0) && (
                   <Button
                     variant="outline"
                     onClick={() => {
                       setSearchQuery("");
                       setFilterProductType("any");
-                      setFilterMake("any");
-                      setFilterModel("any");
-                      setFilterYear("any");
-                      setFilterCategory("any");
-                      setFilterSubCategory("any");
+                      setFilterCategories([]);
+                      setFilterSubCategories([]);
+                      setFilterCarBrands([]);
+                      setFilterCarModels([]);
+                      setCompletenessFilters([]);
+                      setFilterStatuses([]);
                     }}
                   >
                     Clear Filters
@@ -1994,6 +2423,30 @@ export default function ProductsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
+                    <th className="text-left py-3 px-3 w-10">
+                      <Checkbox
+                        checked={
+                          products.length > 0 &&
+                          products.every((p) => selectedIds.includes(p.id))
+                        }
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedIds((prev) => [
+                              ...new Set([
+                                ...prev,
+                                ...products.map((p) => p.id),
+                              ]),
+                            ]);
+                          } else {
+                            const pageIds = new Set(products.map((p) => p.id));
+                            setSelectedIds((prev) =>
+                              prev.filter((id) => !pageIds.has(id))
+                            );
+                          }
+                        }}
+                        aria-label="Select all on page"
+                      />
+                    </th>
                     <th className="text-left py-3 px-4 font-semibold">Image</th>
                     <th className="text-left py-3 px-4 font-semibold">
                       Item Code
@@ -2001,13 +2454,14 @@ export default function ProductsPage() {
                     <th className="text-left py-3 px-4 font-semibold">
                       Product Name
                     </th>
-                    <th className="text-left py-3 px-4 font-semibold">
-                      Price (JOD)
-                    </th>
-                    <th className="text-left py-3 px-4 font-semibold">Stock</th>
+                    <th className="text-left py-3 px-4 font-semibold">Gaps</th>
+                    <SortableTh label="Price" column="price" />
+                    <SortableTh label="Stock" column="stockQuantity" />
                     <th className="text-left py-3 px-4 font-semibold">
                       Status
                     </th>
+                    <SortableTh label="Created" column="createdAt" />
+                    <SortableTh label="Updated" column="updatedAt" />
                     <th className="text-left py-3 px-4 font-semibold">
                       Actions
                     </th>
@@ -2016,12 +2470,26 @@ export default function ProductsPage() {
                 <tbody>
                   {products.map((product) => {
                     const effectiveStock = getEffectiveStockQuantity(product);
-                    const status = getStockStatus(effectiveStock);
+                    const catalogStatus = getCatalogStatus(product);
+                    const storefrontUrl = buildStorefrontProductUrl(product);
                     return (
                       <tr
                         key={product.id}
                         className="border-b border-border hover:bg-accent/5 transition"
                       >
+                        <td className="py-3 px-3">
+                          <Checkbox
+                            checked={selectedIds.includes(product.id)}
+                            onCheckedChange={(checked) => {
+                              setSelectedIds((prev) =>
+                                checked
+                                  ? [...prev, product.id]
+                                  : prev.filter((id) => id !== product.id)
+                              );
+                            }}
+                            aria-label={`Select ${product.itemCode}`}
+                          />
+                        </td>
                         <td className="py-3 px-4">
                           <div className="relative">
                             <img
@@ -2048,19 +2516,28 @@ export default function ProductsPage() {
                             {product.name}
                           </div>
                         </td>
+                        <td className="py-3 px-4">
+                          <CompletenessDots product={product} />
+                        </td>
                         <td className="py-3 px-4 font-semibold">
                           {product.price.toFixed(3)}
                         </td>
                         <td className="py-3 px-4">{effectiveStock}</td>
                         <td className="py-3 px-4">
                           <span
-                            className={`py-1 px-3 rounded-full text-xs font-medium ${status.className}`}
+                            className={`py-1 px-3 rounded-full text-xs font-medium ${CATALOG_STATUS_CLASS[catalogStatus]}`}
                           >
-                            {status.label}
+                            {CATALOG_STATUS_LABELS[catalogStatus]}
                           </span>
                         </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
+                          {new Date(product.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
+                          {new Date(product.updatedAt).toLocaleDateString()}
+                        </td>
                         <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="sm"
@@ -2070,6 +2547,24 @@ export default function ProductsPage() {
                             >
                               View Details
                             </Button>
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a
+                                    href={storefrontUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Open on MotoGT store"
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
+                                  >
+                                    <ExternalLink size={16} />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Open on MotoGT store
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="sm">
@@ -2085,6 +2580,15 @@ export default function ProductsPage() {
                                   }
                                 >
                                   View Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <a
+                                    href={storefrontUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    View on MotoGT
+                                  </a>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => handleOpenDialog(product)}
@@ -3200,14 +3704,73 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Bulk price / stock */}
+      <Dialog open={isBulkDialogOpen} onOpenChange={setIsBulkDialogOpen}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Bulk price / stock update</DialogTitle>
+            <DialogDescription>
+              Apply values to {selectedIds.length} selected product
+              {selectedIds.length === 1 ? "" : "s"}. Leave a field blank to skip
+              it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="bulk-price">Price</Label>
+              <Input
+                id="bulk-price"
+                type="number"
+                min={0}
+                step="0.001"
+                placeholder="Leave blank to keep"
+                value={bulkPrice}
+                onChange={(e) => setBulkPrice(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bulk-stock">Stock</Label>
+              <Input
+                id="bulk-stock"
+                type="number"
+                min={0}
+                step="1"
+                placeholder="Leave blank to keep"
+                value={bulkStock}
+                onChange={(e) => setBulkStock(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsBulkDialogOpen(false)}
+              disabled={bulkSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleBulkUpdate} disabled={bulkSaving}>
+              {bulkSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating…
+                </>
+              ) : (
+                "Apply updates"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Import Dialog */}
       <Dialog open={isImportDialogOpen} onOpenChange={handleCloseImportDialog}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[820px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Import Products</DialogTitle>
             <DialogDescription>
-              Upload a CSV file to bulk import products. Download the template
-              to see the required format.
+              Upload a CSV, review the validation preview, then commit only
+              when errors are clear.
             </DialogDescription>
           </DialogHeader>
 
@@ -3233,72 +3796,97 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDownloadTemplate}
-                className="w-full"
-              >
-                <Download size={16} className="mr-2" />
-                Download CSV Template
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadTemplate}
+              className="w-full"
+            >
+              <Download size={16} className="mr-2" />
+              Download CSV Template
+            </Button>
 
-            {importResults && (
-              <div className="space-y-2">
-                <div className="rounded-lg border border-border p-4">
-                  <h4 className="font-semibold mb-2">Import Results</h4>
-                  <div className="space-y-1 text-sm">
-                    <p className="text-green-400">
-                      ✓ Successfully imported: {importResults.success} products
-                    </p>
-                    {importResults.failed > 0 && (
-                      <>
-                        <p className="text-red-400">
-                          ✗ Failed: {importResults.failed} products
-                        </p>
-                        {importResults.errors.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            <p className="font-medium">Errors:</p>
-                            <div className="max-h-32 overflow-y-auto space-y-1">
-                              {importResults.errors.map((error, idx) => (
-                                <p
-                                  key={idx}
-                                  className="text-xs text-muted-foreground"
-                                >
-                                  • {error}
-                                </p>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
+            {importPreview && (
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span>
+                    Rows: {importPreview.length}
+                  </span>
+                  <span className="text-green-400">
+                    Valid: {importPreview.filter((r) => r.valid).length}
+                  </span>
+                  <span className="text-red-400">
+                    Errors: {importPreview.filter((r) => !r.valid).length}
+                  </span>
+                  <span>
+                    Create:{" "}
+                    {importPreview.filter((r) => r.action === "create").length}
+                  </span>
+                  <span>
+                    Update:{" "}
+                    {importPreview.filter((r) => r.action === "update").length}
+                  </span>
+                </div>
+                <div className="max-h-56 overflow-auto border rounded">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50 sticky top-0">
+                      <tr>
+                        <th className="text-left p-2">Row</th>
+                        <th className="text-left p-2">Action</th>
+                        <th className="text-left p-2">Item</th>
+                        <th className="text-left p-2">Name</th>
+                        <th className="text-left p-2">Issues</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.map((row) => (
+                        <tr
+                          key={row.rowNumber}
+                          className={
+                            row.valid
+                              ? "border-t border-border"
+                              : "border-t border-border bg-red-950/20"
+                          }
+                        >
+                          <td className="p-2">{row.rowNumber}</td>
+                          <td className="p-2 capitalize">{row.action}</td>
+                          <td className="p-2 font-mono">{row.itemCode}</td>
+                          <td className="p-2 max-w-[140px] truncate">
+                            {row.name}
+                          </td>
+                          <td className="p-2 text-muted-foreground">
+                            {row.errors.join("; ") || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
 
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p className="font-medium">CSV Format Requirements:</p>
-              <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>
-                  Required fields: itemCode, name, category, quantity,
-                  sellingPrice
-                </li>
-                <li>
-                  For car parts: also require carMake, carModel, carYearFrom
-                </li>
-                <li>
-                  productType must be either "car-parts" or "non-car-parts"
-                </li>
-                <li>
-                  Images will be set to placeholder (add actual images after
-                  import)
-                </li>
-              </ul>
-            </div>
+            {importResults && (
+              <div className="rounded-lg border border-border p-4 space-y-1 text-sm">
+                <h4 className="font-semibold mb-2">Import Results</h4>
+                <p className="text-green-400">
+                  ✓ Successfully imported: {importResults.success} products
+                </p>
+                {importResults.failed > 0 && (
+                  <>
+                    <p className="text-red-400">
+                      ✗ Failed / skipped: {importResults.failed}
+                    </p>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {importResults.errors.map((error, idx) => (
+                        <p key={idx} className="text-xs text-muted-foreground">
+                          • {error}
+                        </p>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -3306,8 +3894,22 @@ export default function ProductsPage() {
               {importResults ? "Close" : "Cancel"}
             </Button>
             {!importResults && (
-              <Button onClick={handleImportProducts} disabled={!importFile}>
-                Import Products
+              <Button
+                onClick={handleImportProducts}
+                disabled={
+                  !importPreview ||
+                  importCommitting ||
+                  importPreview.every((r) => !r.valid)
+                }
+              >
+                {importCommitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Committing…
+                  </>
+                ) : (
+                  `Commit ${importPreview?.filter((r) => r.valid && r.action === "create").length || 0} creates`
+                )}
               </Button>
             )}
           </DialogFooter>

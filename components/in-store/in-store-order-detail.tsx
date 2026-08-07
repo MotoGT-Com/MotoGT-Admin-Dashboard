@@ -2,7 +2,7 @@
 
 /**
  * Detail view for session-local in-store orders (ids prefixed "ins-",
- * recorded by the New Sale flow via recordInStoreOrder). The regular
+ * recorded by channel order entry via recordChannelOrder). The regular
  * /dashboard/orders/[id] page is backend-bound, so it delegates these
  * mock orders here instead of calling the order service.
  */
@@ -94,7 +94,7 @@ export function InStoreOrderDetail() {
               </div>
             </div>
             <Button variant="outline" size="sm" asChild>
-              <Link href={`/dashboard/in-store/customers/${order.customerId}`}>
+              <Link href={`/dashboard/customers/${order.customerId}`}>
                 View profile
               </Link>
             </Button>

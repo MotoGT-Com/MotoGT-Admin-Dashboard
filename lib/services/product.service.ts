@@ -77,8 +77,9 @@ export interface Product {
 export interface ProductListParams {
   storeId: string;
   languageId: string;
-  categoryId?: string;
-  subCategoryId?: string;
+  /** Single ID or comma-separated / array (backend supports multi) */
+  categoryId?: string | string[];
+  subCategoryId?: string | string[];
   productTypeId?: string;
   search?: string;
   page?: number;
@@ -90,6 +91,9 @@ export interface ProductListParams {
   // New parameters for year-range based filtering
   carId?: string;
   carYear?: number;
+  isActive?: boolean;
+  sortBy?: "name" | "price" | "createdAt" | "stockQuantity" | "carCompatibility" | "random";
+  sortOrder?: "asc" | "desc";
 }
 
 export interface ProductListResponse {
@@ -385,8 +389,18 @@ class ProductService {
       if (params.limit) queryParams.set('limit', String(params.limit));
       
       // Optional filters
-      if (params.categoryId) queryParams.set('categoryId', params.categoryId);
-      if (params.subCategoryId) queryParams.set('subCategoryId', params.subCategoryId);
+      if (params.categoryId) {
+        const ids = Array.isArray(params.categoryId)
+          ? params.categoryId
+          : [params.categoryId];
+        queryParams.set('categoryId', ids.join(','));
+      }
+      if (params.subCategoryId) {
+        const ids = Array.isArray(params.subCategoryId)
+          ? params.subCategoryId
+          : [params.subCategoryId];
+        queryParams.set('subCategoryId', ids.join(','));
+      }
       if (params.productTypeId) queryParams.set('productTypeId', params.productTypeId);
       if (params.search) queryParams.set('search', params.search);
       if (params.carBrand) queryParams.set('carBrand', params.carBrand);
@@ -395,6 +409,11 @@ class ProductService {
       // New year-range based filtering
       if (params.carId) queryParams.set('carId', params.carId);
       if (params.carYear) queryParams.set('carYear', String(params.carYear));
+      if (typeof params.isActive === 'boolean') {
+        queryParams.set('isActive', String(params.isActive));
+      }
+      if (params.sortBy) queryParams.set('sortBy', params.sortBy);
+      if (params.sortOrder) queryParams.set('sortOrder', params.sortOrder);
       
       const response = await apiClient.get<any>(`/admin/products?${queryParams.toString()}`);
 

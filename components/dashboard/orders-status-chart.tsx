@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts';
 import {
   Card,
@@ -28,6 +29,16 @@ const STATUS_COLORS: Record<string, string> = {
   refunded: '#F97316',
 };
 
+const STATUS_ORDER = [
+  'pending',
+  'confirmed',
+  'processing',
+  'shipped',
+  'delivered',
+  'cancelled',
+  'refunded',
+];
+
 const chartConfig = {
   count: {
     label: 'Orders',
@@ -39,25 +50,73 @@ interface OrdersStatusChartProps {
   data: DashboardStatusCount[];
   periodLabel: string;
   loading?: boolean;
+  /**
+   * Live open-queue counts. Injected into the chart when the period payload
+   * omits a nonzero open status (common when queue orders are older than the
+   * selected window).
+   */
+  openQueue?: {
+    pending: number;
+    processing: number;
+  };
 }
 
 export function OrdersStatusChart({
   data,
   periodLabel,
   loading,
+  openQueue,
 }: OrdersStatusChartProps) {
-  const chartData = data.map((row) => ({
-    status: formatStatusLabel(row.status),
-    statusKey: row.status,
-    count: row.count,
-    fill: STATUS_COLORS[row.status] || '#64748B',
-  }));
+  const { chartData, injectedOpenStatuses } = useMemo(() => {
+    const byStatus = new Map<string, number>();
+    for (const row of data) {
+      byStatus.set(row.status, row.count);
+    }
+
+    const injected: string[] = [];
+    if (openQueue) {
+      if (
+        openQueue.processing > 0 &&
+        (byStatus.get('processing') ?? 0) === 0
+      ) {
+        byStatus.set('processing', openQueue.processing);
+        injected.push('processing');
+      }
+      if (openQueue.pending > 0 && (byStatus.get('pending') ?? 0) === 0) {
+        byStatus.set('pending', openQueue.pending);
+        injected.push('pending');
+      }
+    }
+
+    const rows = Array.from(byStatus.entries())
+      .filter(([, count]) => count > 0)
+      .sort(([a], [b]) => {
+        const ai = STATUS_ORDER.indexOf(a);
+        const bi = STATUS_ORDER.indexOf(b);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      })
+      .map(([status, count]) => ({
+        status: formatStatusLabel(status),
+        statusKey: status,
+        count,
+        fill: STATUS_COLORS[status] || '#64748B',
+      }));
+
+    return { chartData: rows, injectedOpenStatuses: injected };
+  }, [data, openQueue]);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Orders by status</CardTitle>
-        <CardDescription>{periodLabel}</CardDescription>
+        <CardDescription>
+          {periodLabel}
+          {injectedOpenStatuses.length > 0
+            ? ` · ${injectedOpenStatuses
+                .map(formatStatusLabel)
+                .join(' & ')} include open queue (may predate this period)`
+            : ' · orders created in this period'}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (

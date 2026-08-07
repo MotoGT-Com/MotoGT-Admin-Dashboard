@@ -41,7 +41,9 @@ import {
   Save,
   XCircle,
   Plus,
+  ExternalLink,
 } from "lucide-react";
+import { buildStorefrontProductUrl } from "@/lib/products/catalog-helpers";
 import { Separator } from "@/components/ui/separator";
 import {
   productService,
@@ -722,6 +724,16 @@ export default function ProductDetailPage() {
             </>
           ) : (
             <>
+              <Button variant="outline" asChild>
+                <a
+                  href={buildStorefrontProductUrl(product)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  View on MotoGT
+                </a>
+              </Button>
               <Button variant="outline" onClick={handleEditMode}>
                 <Edit className="h-4 w-4 mr-2" />
                 Edit

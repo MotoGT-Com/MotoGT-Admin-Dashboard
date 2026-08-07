@@ -16,11 +16,42 @@ import {
   formatRelativeTime,
   formatStatusLabel,
 } from '@/lib/dashboard-utils';
+import { cn } from '@/lib/utils';
 
 interface AttentionOrdersProps {
   orders: DashboardAttentionOrder[];
   currencyCode: string;
   loading?: boolean;
+}
+
+const STALE_DAYS = 14;
+const WARNING_DAYS = 7;
+
+function orderAgeDays(iso: string): number {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  return Math.floor(diffMs / 86400000);
+}
+
+function urgencyStyles(ageDays: number): {
+  row: string;
+  badge?: string;
+  label?: string;
+} {
+  if (ageDays >= STALE_DAYS) {
+    return {
+      row: 'border-l-2 border-l-red-500 bg-red-500/[0.04]',
+      badge: 'border-red-500/40 text-red-700 dark:text-red-400',
+      label: 'Stale',
+    };
+  }
+  if (ageDays >= WARNING_DAYS) {
+    return {
+      row: 'border-l-2 border-l-amber-500 bg-amber-500/[0.04]',
+      badge: 'border-amber-500/40 text-amber-800 dark:text-amber-300',
+      label: 'Aging',
+    };
+  }
+  return { row: 'border-l-2 border-l-transparent' };
 }
 
 export function AttentionOrders({
@@ -33,7 +64,10 @@ export function AttentionOrders({
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle>Needs attention</CardTitle>
-          <CardDescription>Open pending &amp; processing orders</CardDescription>
+          <CardDescription>
+            Open pending &amp; processing orders · highlighted after {WARNING_DAYS}
+            + / {STALE_DAYS}+ days
+          </CardDescription>
         </div>
         <Link
           href="/dashboard/orders"
@@ -59,11 +93,16 @@ export function AttentionOrders({
               const href = order.isGuest
                 ? `/dashboard/orders/${order.id}?guest=true`
                 : `/dashboard/orders/${order.id}`;
+              const ageDays = orderAgeDays(order.createdAt);
+              const urgency = urgencyStyles(ageDays);
               return (
                 <li key={order.id}>
                   <Link
                     href={href}
-                    className="flex items-center justify-between gap-3 py-3 hover:bg-muted/40 -mx-2 px-2 rounded-md transition-colors"
+                    className={cn(
+                      'flex items-center justify-between gap-3 py-3 hover:bg-muted/40 -mx-2 px-2 rounded-md transition-colors',
+                      urgency.row,
+                    )}
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -73,6 +112,14 @@ export function AttentionOrders({
                         <Badge variant="outline" className="text-xs capitalize">
                           {formatStatusLabel(order.status)}
                         </Badge>
+                        {urgency.label ? (
+                          <Badge
+                            variant="outline"
+                            className={cn('text-xs', urgency.badge)}
+                          >
+                            {urgency.label}
+                          </Badge>
+                        ) : null}
                         {order.isGuest && (
                           <Badge variant="secondary" className="text-xs">
                             Guest

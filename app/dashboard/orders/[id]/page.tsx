@@ -28,6 +28,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { orderService, Order } from "@/lib/services/order.service";
 import { userService, User } from "@/lib/services/user.service";
+import { settingsService } from "@/lib/services/settings.service";
+import { formatMoney } from "@/lib/dashboard-utils";
 import { toast } from "sonner";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -199,6 +201,22 @@ function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
     Number(order?.order?.totalAmount || 0) ||
     0;
 
+  const storeCurrency =
+    settingsService.getSelectedStore()?.currencyCode || "JOD";
+  const displayCurrency = (
+    order?.order?.currency ||
+    order?.order?.currencyCode ||
+    storeCurrency
+  )
+    .toString()
+    .trim()
+    .toUpperCase();
+  // Prefer store currency when API currency disagrees (USD/JOD mix).
+  const currency =
+    displayCurrency && displayCurrency !== storeCurrency.toUpperCase()
+      ? storeCurrency.toUpperCase()
+      : displayCurrency || storeCurrency.toUpperCase();
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -353,12 +371,17 @@ function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
                     <div className="space-y-3 text-sm">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Subtotal</span>
-                        <span>JOD {calculatedSubtotal.toFixed(2)}</span>
+                        <span>
+                          {formatMoney(calculatedSubtotal, currency)}
+                        </span>
                       </div>
                       <div className="border-t border-border pt-3 flex justify-between font-bold">
                         <span>Total</span>
                         <span className="text-primary">
-                          JOD {Number(order.order.totalAmount || 0).toFixed(2)}
+                          {formatMoney(
+                            Number(order.order.totalAmount || 0),
+                            currency
+                          )}
                         </span>
                       </div>
                     </div>
@@ -403,7 +426,10 @@ function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
                         </p>
                       </div>
                       <p className="font-semibold whitespace-nowrap">
-                        JOD {Number(item.totalPrice || 0).toFixed(2)}
+                        {formatMoney(
+                          Number(item.totalPrice || 0),
+                          item.currencyCode || currency
+                        )}
                       </p>
                     </div>
                   ))
@@ -415,7 +441,7 @@ function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
                 <div className="flex justify-between items-center pt-4 border-t border-border">
                   <span className="font-semibold">Subtotal</span>
                   <span className="font-bold text-lg">
-                    JOD {calculatedSubtotal.toFixed(2)}
+                    {formatMoney(calculatedSubtotal, currency)}
                   </span>
                 </div>
               </div>
