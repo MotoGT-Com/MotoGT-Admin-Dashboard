@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingState } from "@/components/loading-state";
 import {
   Dialog,
   DialogContent,
@@ -354,24 +354,24 @@ export default function ProductTypesPage() {
 
   if (authLoading || languagesLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-96 w-full" />
-      </div>
+      <LoadingState
+        variant="full"
+        label={authLoading ? "Checking session…" : "Loading languages…"}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Product Types</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Product Types</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Manage product type classifications
           </p>
         </div>
-        <Button onClick={handleOpenAddDialog} className="gap-2">
+        <Button onClick={handleOpenAddDialog} className="gap-2 w-full sm:w-auto shrink-0">
           <Plus size={18} />
           Add Product Type
         </Button>
@@ -427,11 +427,7 @@ export default function ProductTypesPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-12 w-full" />
-              ))}
-            </div>
+            <LoadingState label="Loading product types…" />
           ) : productTypes.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               No product types found. Click "Add Product Type" to create one.

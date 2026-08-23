@@ -28,7 +28,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { orderService, Order } from "@/lib/services/order.service";
 import { userService, User } from "@/lib/services/user.service";
+import { settingsService } from "@/lib/services/settings.service";
+import { formatMoney } from "@/lib/dashboard-utils";
+import { channelLabel } from "@/lib/domain/channels";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/loading-state";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ShipOrderModal,
@@ -39,9 +43,13 @@ import {
 
 export default function OrderDetailsPage() {
   const params = useParams();
+  const orderId = params.id as string;
+  return <BackendOrderDetailsPage orderId={orderId} />;
+}
+
+function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const orderId = params.id as string;
   const isGuest = searchParams.get("guest") === "true";
 
   const [order, setOrder] = useState<any>(null);
@@ -99,21 +107,21 @@ export default function OrderDetailsPage() {
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "pending":
-        return "bg-yellow-900/30 text-yellow-300";
+        return "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300";
       case "confirmed":
-        return "bg-blue-900/30 text-blue-300";
+        return "bg-blue-500/15 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300";
       case "processing":
-        return "bg-purple-900/30 text-purple-300";
+        return "bg-violet-500/15 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300";
       case "shipped":
-        return "bg-orange-900/30 text-orange-300";
+        return "bg-orange-500/15 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300";
       case "delivered":
-        return "bg-green-900/30 text-green-300";
+        return "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300";
       case "cancelled":
-        return "bg-red-900/30 text-red-300";
+        return "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-300";
       case "refunded":
-        return "bg-red-950/50 text-red-400";
+        return "bg-rose-500/15 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300";
       default:
-        return "bg-gray-900/30 text-gray-300";
+        return "bg-muted text-muted-foreground";
     }
   };
 
@@ -128,17 +136,19 @@ export default function OrderDetailsPage() {
         return "Cliq";
       case "card_on_delivery":
         return "Card On Delivery";
+      case "cash":
+        return "Cash";
+      case "card":
+        return "Card";
+      case "other":
+        return "Other";
       default:
         return type;
     }
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <LoadingState variant="full" label="Loading order…" />;
   }
 
   if (!order) {
@@ -187,18 +197,41 @@ export default function OrderDetailsPage() {
     Number(order?.order?.totalAmount || 0) ||
     0;
 
+  const storeCurrency =
+    settingsService.getSelectedStore()?.currencyCode || "JOD";
+  const displayCurrency = (
+    order?.order?.currency ||
+    order?.order?.currencyCode ||
+    storeCurrency
+  )
+    .toString()
+    .trim()
+    .toUpperCase();
+  // Prefer store currency when API currency disagrees (USD/JOD mix).
+  const currency =
+    displayCurrency && displayCurrency !== storeCurrency.toUpperCase()
+      ? storeCurrency.toUpperCase()
+      : displayCurrency || storeCurrency.toUpperCase();
+
+  const orderChannel = (order.order.channel || "") as string;
+  const isChannelSale =
+    orderChannel === "in_store" || orderChannel === "whatsapp";
+  const hideShipDeliver =
+    isChannelSale &&
+    (order.order.status === "delivered" || Boolean(order.order.isPaid));
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="outline" size="sm" className="gap-2" asChild>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3 min-w-0">
+          <Button variant="outline" size="sm" className="gap-2 shrink-0" asChild>
             <Link href="/dashboard/orders">
               <ArrowLeft size={16} />
-              Back
+              <span className="hidden xs:inline sm:inline">Back</span>
             </Link>
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold break-words">
               Order {order.order.orderNumber || order.order.id}
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
@@ -206,7 +239,7 @@ export default function OrderDetailsPage() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {/* Action buttons based on status */}
           {order.order.status === "pending" && (
             <Button
@@ -221,10 +254,12 @@ export default function OrderDetailsPage() {
           {(order.order.status === "confirmed" ||
             order.order.status === "processing") && (
             <>
-              <Button onClick={() => setShipModalOpen(true)} className="gap-2">
-                <Truck size={18} />
-                Ship Order
-              </Button>
+              {!hideShipDeliver && (
+                <Button onClick={() => setShipModalOpen(true)} className="gap-2">
+                  <Truck size={18} />
+                  Ship Order
+                </Button>
+              )}
               <Button
                 variant="destructive"
                 onClick={() => setCancelModalOpen(true)}
@@ -235,7 +270,7 @@ export default function OrderDetailsPage() {
               </Button>
             </>
           )}
-          {order.order.status === "shipped" && (
+          {order.order.status === "shipped" && !hideShipDeliver && (
             <Button onClick={() => setDeliverModalOpen(true)} className="gap-2">
               <CheckCircle size={18} />
               Mark as Delivered
@@ -294,6 +329,26 @@ export default function OrderDetailsPage() {
                           : order.order.paymentMethod?.type
                       )}
                     </p>
+                    {order.order.channel ? (
+                      <>
+                        <p className="text-sm text-muted-foreground mt-3">
+                          Channel
+                        </p>
+                        <p className="text-sm font-medium">
+                          {channelLabel(order.order.channel)}
+                        </p>
+                      </>
+                    ) : null}
+                    {order.order.staffMember ? (
+                      <>
+                        <p className="text-sm text-muted-foreground mt-3">
+                          Staff
+                        </p>
+                        <p className="text-sm font-medium">
+                          {order.order.staffMember}
+                        </p>
+                      </>
+                    ) : null}
                   </div>
                 </div>
 
@@ -322,12 +377,12 @@ export default function OrderDetailsPage() {
                       <span
                         className={`px-3 py-1 rounded-full text-xs font-medium ${
                           order.order.payment?.status === "captured"
-                            ? "bg-green-900/30 text-green-300"
+                            ? "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
                             : order.order.payment?.status === "pending"
-                            ? "bg-yellow-900/30 text-yellow-300"
+                            ? "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
                             : order.order.payment?.status === "failed"
-                            ? "bg-red-900/30 text-red-300"
-                            : "bg-gray-900/30 text-gray-300"
+                            ? "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-300"
+                            : "bg-muted text-muted-foreground"
                         }`}
                       >
                         {order.order.payment?.status || "N/A"}
@@ -341,12 +396,17 @@ export default function OrderDetailsPage() {
                     <div className="space-y-3 text-sm">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Subtotal</span>
-                        <span>JOD {calculatedSubtotal.toFixed(2)}</span>
+                        <span>
+                          {formatMoney(calculatedSubtotal, currency)}
+                        </span>
                       </div>
                       <div className="border-t border-border pt-3 flex justify-between font-bold">
                         <span>Total</span>
                         <span className="text-primary">
-                          JOD {Number(order.order.totalAmount || 0).toFixed(2)}
+                          {formatMoney(
+                            Number(order.order.totalAmount || 0),
+                            currency
+                          )}
                         </span>
                       </div>
                     </div>
@@ -391,7 +451,10 @@ export default function OrderDetailsPage() {
                         </p>
                       </div>
                       <p className="font-semibold whitespace-nowrap">
-                        JOD {Number(item.totalPrice || 0).toFixed(2)}
+                        {formatMoney(
+                          Number(item.totalPrice || 0),
+                          item.currencyCode || currency
+                        )}
                       </p>
                     </div>
                   ))
@@ -403,7 +466,7 @@ export default function OrderDetailsPage() {
                 <div className="flex justify-between items-center pt-4 border-t border-border">
                   <span className="font-semibold">Subtotal</span>
                   <span className="font-bold text-lg">
-                    JOD {calculatedSubtotal.toFixed(2)}
+                    {formatMoney(calculatedSubtotal, currency)}
                   </span>
                 </div>
               </div>

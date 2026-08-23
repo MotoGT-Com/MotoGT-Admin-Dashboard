@@ -3,10 +3,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ShieldCheck, ShieldX, Loader2 } from "lucide-react";
+import { ArrowLeft, ShieldCheck, ShieldX } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { userService, User } from "@/lib/services/user.service";
+import { LoadingState } from "@/components/loading-state";
 import { toast } from "sonner";
 
 export default function UserDetailsPage() {
@@ -77,14 +78,7 @@ export default function UserDetailsPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-          <p className="mt-2 text-muted-foreground">Loading user details...</p>
-        </div>
-      </div>
-    );
+    return <LoadingState variant="full" label="Loading user…" />;
   }
 
   if (!user) {
@@ -100,19 +94,19 @@ export default function UserDetailsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="sm" onClick={() => router.back()} className="shrink-0">
             <ArrowLeft size={20} />
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">User Details</h1>
-            <p className="text-muted-foreground mt-1">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">User Details</h1>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
               View and manage user information
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={handleVerificationToggle}>
             {user.emailVerified ? (
               <ShieldX size={16} className="mr-2" />

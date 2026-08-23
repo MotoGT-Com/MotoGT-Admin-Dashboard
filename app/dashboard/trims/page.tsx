@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingState } from "@/components/loading-state";
 import { Loader2, Plus, Store as StoreIcon } from "lucide-react";
 import { toast } from "sonner";
 import { settingsService } from "@/lib/services/settings.service";
@@ -505,11 +505,10 @@ export default function TrimsPage() {
 
   if (settingsLoading || !selectedStore || !selectedLanguage) {
     return (
-      <div className="p-6 space-y-4">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
+      <LoadingState
+        variant="full"
+        label={settingsLoading ? "Loading stores…" : "Initializing…"}
+      />
     );
   }
 
@@ -635,18 +634,21 @@ export default function TrimsPage() {
           view named trim assignments. “All trims” fitment rows are hidden.
         </p>
       ) : assignmentsLoading && allRows.length === 0 ? (
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-24" />
-            ))}
-          </div>
-          <Skeleton className="h-64 w-full" />
-        </div>
+        <LoadingState
+          label={
+            model && model !== "any"
+              ? `Loading ${make} ${model} trim assignments…`
+              : `Loading ${make} trim assignments…`
+          }
+        />
       ) : (
         <>
           {assignmentsLoading ? (
-            <p className="text-xs text-muted-foreground mb-2">Updating results…</p>
+            <LoadingState
+              variant="compact"
+              label="Updating results…"
+              className="mb-2"
+            />
           ) : null}
           <TrimsSummaryCards summary={summary} />
 

@@ -5,32 +5,36 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useSidebar } from "./sidebar-context";
+import { useMockRole } from "@/lib/context/mock-role-context";
+import {
+  ADMIN_SETTINGS_HREF,
+  STORE_STAFF_HREFS,
+  canAccessAdminSettings,
+  canAccessComingSoonPages,
+  isComingSoonHref,
+} from "@/lib/domain/admin-roles";
 import {
   LayoutDashboard,
   ShoppingCart,
-  Package,
   Layers,
   FolderTree,
   Tag,
   Users,
   Car,
-  FileText,
-  Zap,
-  TicketIcon,
   ListTree,
-  Settings,
-  ChevronDown,
   Menu,
   X,
-  ChevronsLeft,
-  ChevronsRight,
-  UserCog,
-  Shield,
-  ScrollText,
-  Warehouse,
   Percent,
+  Contact,
+  Library,
+  FileText,
+  Settings,
+  Zap,
+  Globe,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { STOREFRONT_BASE_URL } from "@/lib/products/catalog-helpers";
 
 interface NavGroup {
   label: string;
@@ -43,9 +47,10 @@ interface NavItem {
   href: string;
 }
 
+/** Sales-first IA: Operations (~60%) then Store Management (~40%) then Marketing. */
 const navigationGroups: NavGroup[] = [
   {
-    label: "General",
+    label: "Operations",
     items: [
       {
         icon: <LayoutDashboard size={20} />,
@@ -57,16 +62,21 @@ const navigationGroups: NavGroup[] = [
         label: "Orders",
         href: "/dashboard/orders",
       },
-      { icon: <Users size={20} />, label: "Users", href: "/dashboard/users" },
+      {
+        icon: <Contact size={20} />,
+        label: "Customers",
+        href: "/dashboard/customers",
+      },
+      { icon: <Users size={20} />, label: "Online users", href: "/dashboard/users" },
     ],
   },
   {
     label: "Store Management",
     items: [
       {
-        icon: <Layers size={20} />,
-        label: "Product Types",
-        href: "/dashboard/product-types",
+        icon: <Tag size={20} />,
+        label: "Products",
+        href: "/dashboard/products",
       },
       {
         icon: <FolderTree size={20} />,
@@ -74,9 +84,14 @@ const navigationGroups: NavGroup[] = [
         href: "/dashboard/categories",
       },
       {
-        icon: <Tag size={20} />,
-        label: "Products",
-        href: "/dashboard/products",
+        icon: <Layers size={20} />,
+        label: "Product Types",
+        href: "/dashboard/product-types",
+      },
+      {
+        icon: <Library size={20} />,
+        label: "Collections",
+        href: "/dashboard/collections",
       },
       { icon: <Car size={20} />, label: "Cars", href: "/dashboard/cars" },
       {
@@ -94,39 +109,65 @@ const navigationGroups: NavGroup[] = [
         label: "Promo Codes",
         href: "/dashboard/promo-codes",
       },
-      // { icon: <TicketIcon size={20} />, label: "Coupon Codes", href: "/dashboard/coupons" },
-      // { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
+      {
+        icon: <Zap size={20} />,
+        label: "Product Discounts",
+        href: "/dashboard/discounts",
+      },
+      {
+        icon: <FileText size={20} />,
+        label: "CMS",
+        href: "/dashboard/cms",
+      },
+      {
+        icon: <Mail size={20} />,
+        label: "Newsletter",
+        href: "/dashboard/newsletter",
+      },
     ],
   },
-  // {
-  //   label: "Content Management",
-  //   items: [
-  //     { icon: <FileText size={20} />, label: "CMS", href: "/dashboard/cms" },
-  //     { icon: <Shield size={20} />, label: "Legal CMS", href: "/dashboard/legal-cms" },
-  //   ],
-  // },
-  // {
-  //   label: "Marketing",
-  //   items: [
-  //     { icon: <TicketIcon size={20} />, label: "Coupon Codes", href: "/dashboard/coupons" },
-  //     { icon: <Zap size={20} />, label: "Discounts", href: "/dashboard/discounts" },
-  //   ],
-  // },
-  // {
-  //   label: "Configuration",
-  //   items: [
-  //     { icon: <UserCog size={20} />, label: "Admin Management", href: "/dashboard/admins" },
-  //     // { icon: <Settings size={20} />, label: "Settings", href: "/dashboard/settings" },
-  //   ],
-  // },
+  {
+    label: "Settings",
+    items: [
+      {
+        icon: <Settings size={20} />,
+        label: "Admin Settings",
+        href: ADMIN_SETTINGS_HREF,
+      },
+    ],
+  },
 ];
 
 export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const { isCollapsed } = useSidebar();
+  const { role } = useMockRole();
   const pathname = usePathname();
 
-  const isActive = (href: string) => pathname === href;
+  const isActive = (href: string) => {
+    if (href === "/dashboard") return pathname === "/dashboard";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
+
+  // Role-scoped nav: store_staff = counter tools; admin = all except Admin Settings;
+  // super_admin = everything.
+  const visibleGroups = navigationGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        if (item.href === ADMIN_SETTINGS_HREF) {
+          return canAccessAdminSettings(role);
+        }
+        if (isComingSoonHref(item.href)) {
+          return canAccessComingSoonPages(role);
+        }
+        if (role === "store_staff") {
+          return STORE_STAFF_HREFS.has(item.href);
+        }
+        return true;
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -134,7 +175,7 @@ export function Sidebar() {
       <Button
         variant="ghost"
         size="icon"
-        className="md:hidden fixed top-4 left-4 z-40"
+        className="md:hidden fixed top-3.5 left-3 z-40 h-9 w-9"
         onClick={() => setIsOpen(!isOpen)}
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
@@ -150,27 +191,90 @@ export function Sidebar() {
       >
         <div className="flex flex-col h-full overflow-y-auto">
           <div
-            className={`border-b border-sidebar-border flex items-center ${
-              isCollapsed ? "justify-center p-4" : "px-5 py-5"
+            className={`border-b border-sidebar-border flex ${
+              isCollapsed
+                ? "flex-col items-center justify-center gap-2 p-4"
+                : "flex-col items-stretch px-5 py-4"
             }`}
           >
-            <Image
-              src="/motogt-logo.svg"
-              alt="MotoGT"
-              width={646}
-              height={94}
-              priority
-              className={
-                isCollapsed
-                  ? "h-6 w-6 object-contain object-left"
-                  : "h-6 w-auto max-w-full"
-              }
-            />
+            <div
+              className={`flex w-full items-center ${
+                isCollapsed ? "justify-center" : "justify-between gap-2"
+              }`}
+            >
+              {/* The wordmark's "MOTO" letters are white in the primary asset
+                  (for dark backgrounds) and black in the -black variant, so
+                  each theme gets the readable one. */}
+              <Image
+                src="/motogt-logo-black.svg"
+                alt="MotoGT"
+                width={646}
+                height={94}
+                priority
+                className={`dark:hidden ${
+                  isCollapsed
+                    ? "h-6 w-6 object-contain object-left"
+                    : "h-6 w-auto max-w-[calc(100%-2.5rem)]"
+                }`}
+              />
+              <Image
+                src="/motogt-logo.svg"
+                alt="MotoGT"
+                width={646}
+                height={94}
+                priority
+                className={`hidden dark:block ${
+                  isCollapsed
+                    ? "h-6 w-6 object-contain object-left"
+                    : "h-6 w-auto max-w-[calc(100%-2.5rem)]"
+                }`}
+              />
+              {!isCollapsed && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  asChild
+                >
+                  <a
+                    href={STOREFRONT_BASE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open MotoGT website"
+                    title="Open MotoGT website"
+                  >
+                    <Globe size={16} />
+                  </a>
+                </Button>
+              )}
+            </div>
+            {isCollapsed ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                asChild
+              >
+                <a
+                  href={STOREFRONT_BASE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open MotoGT website"
+                  title="Open MotoGT website"
+                >
+                  <Globe size={16} />
+                </a>
+              </Button>
+            ) : (
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-[0.2em] mt-1.5">
+                Admin Panel
+              </p>
+            )}
           </div>
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-6">
-            {navigationGroups.map((group) => (
+            {visibleGroups.map((group) => (
               <div key={group.label}>
                 {!isCollapsed && (
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 px-3">
@@ -208,7 +312,7 @@ export function Sidebar() {
       {/* Overlay for mobile */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-20 md:hidden"
+          className="fixed inset-0 bg-black/50 z-[25] md:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}

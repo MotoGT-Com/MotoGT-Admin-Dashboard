@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { LoadingState } from "@/components/loading-state";
 import {
   promoCodeService,
   PromoCode,
@@ -121,8 +122,12 @@ export default function PromoCodesPage() {
 
       const response = await promoCodeService.getPromoCodes(params);
       setPromoCodes(response.promoCodes);
-      setTotalPages(response.pagination.totalPages);
-      setTotalCount(response.pagination.totalCount);
+      setTotalPages(response.pagination.totalPages || 1);
+      setTotalCount(
+        response.pagination.total ??
+          response.pagination.totalCount ??
+          response.promoCodes.length,
+      );
     } catch (error: any) {
       toast({
         title: "Error",
@@ -332,14 +337,14 @@ export default function PromoCodesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Promo Codes</h1>
-          <p className="text-muted-foreground">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold">Promo Codes</h1>
+          <p className="text-muted-foreground text-sm sm:text-base">
             Manage promotional discount codes
           </p>
         </div>
-        <Button onClick={() => handleOpenDialog()}>
+        <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto shrink-0">
           <Plus className="mr-2 h-4 w-4" />
           Create Promo Code
         </Button>
@@ -377,22 +382,34 @@ export default function PromoCodesPage() {
       {/* Promo Codes Table */}
       <Card>
         <CardHeader>
-          <CardTitle>All Promo Codes ({totalCount})</CardTitle>
+          <CardTitle>
+            All Promo Codes ({Number.isFinite(totalCount) ? totalCount : filteredPromoCodes.length})
+          </CardTitle>
           <CardDescription>
             View and manage all promotional codes
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Loading...
+        <CardContent className="relative">
+          {isLoading && promoCodes.length > 0 ? (
+            <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/20">
+              <div className="h-full w-1/3 animate-pulse bg-primary" />
             </div>
+          ) : null}
+          {isLoading && promoCodes.length === 0 ? (
+            <LoadingState label="Loading promo codes…" />
           ) : filteredPromoCodes.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No promo codes found
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">No promo codes found</p>
+              <p className="text-sm">
+                Create a promo code to offer discounts at checkout.
+              </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className={`overflow-x-auto transition-opacity ${
+                isLoading ? "opacity-60 pointer-events-none" : ""
+              }`}
+            >
               <table className="w-full">
                 <thead>
                   <tr className="border-b">

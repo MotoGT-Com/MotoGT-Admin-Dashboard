@@ -1,4 +1,6 @@
 import { apiClient } from '../api-client';
+import type { AdminRole } from '../domain/admin-roles';
+import { normalizeAdminRole } from '../domain/admin-roles';
 
 export interface LoginRequest {
   email: string;
@@ -9,7 +11,8 @@ export interface LoginRequest {
 export interface LoginResponse {
   userId: string;
   email: string;
-  role: 'admin';
+  name?: string | null;
+  role: AdminRole;
   isEmailVerified: boolean;
   requiresEmailVerification?: boolean;
   accessToken: string;
@@ -20,8 +23,20 @@ export interface LoginResponse {
 export interface User {
   userId: string;
   email: string;
-  role: 'admin';
+  name?: string | null;
+  role: AdminRole;
   isEmailVerified: boolean;
+}
+
+function toStoredUser(data: LoginResponse): User {
+  const role = normalizeAdminRole(data.role) ?? 'admin';
+  return {
+    userId: data.userId,
+    email: data.email,
+    name: data.name ?? null,
+    role,
+    isEmailVerified: data.isEmailVerified,
+  };
 }
 
 class AuthService {
@@ -31,20 +46,27 @@ class AuthService {
    */
   async login(credentials: LoginRequest): Promise<LoginResponse> {
     try {
-      const response = await apiClient.post<LoginResponse>('/admin/login', credentials);
-      
-      const { accessToken, refreshToken, ...userData } = response.data.data;
+      const response = await apiClient.post<LoginResponse>(
+        '/admin/login',
+        credentials,
+      );
 
-      // Store tokens
+      const payload = response.data.data;
+      const { accessToken, refreshToken, ...rest } = payload;
+
       apiClient.setAccessToken(accessToken);
       apiClient.setRefreshToken(refreshToken);
 
-      // Store user data
       if (typeof window !== 'undefined') {
-        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('user', JSON.stringify(toStoredUser(payload)));
       }
 
-      return response.data.data;
+      return {
+        ...rest,
+        role: normalizeAdminRole(rest.role) ?? 'admin',
+        accessToken,
+        refreshToken,
+      };
     } catch (error: any) {
       const apiMessage = error.response?.data?.error?.message;
       const status = error.response?.status;
@@ -58,7 +80,9 @@ class AuthService {
       if (error.message && !error.response) {
         throw new Error(error.message);
       }
-      throw new Error(apiMessage || 'An error occurred during login. Please try again.');
+      throw new Error(
+        apiMessage || 'An error occurred during login. Please try again.',
+      );
     }
   }
 
@@ -72,7 +96,6 @@ class AuthService {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear tokens and user data regardless of API response
       apiClient.clearTokens();
     }
   }
@@ -82,12 +105,21 @@ class AuthService {
    */
   getCurrentUser(): User | null {
     if (typeof window === 'undefined') return null;
-    
+
     const userStr = localStorage.getItem('user');
     if (!userStr) return null;
 
     try {
-      return JSON.parse(userStr) as User;
+      const parsed = JSON.parse(userStr) as User & { role: string };
+      const role = normalizeAdminRole(parsed.role);
+      if (!role) return null;
+      return {
+        userId: parsed.userId,
+        email: parsed.email,
+        name: parsed.name ?? null,
+        role,
+        isEmailVerified: parsed.isEmailVerified,
+      };
     } catch {
       return null;
     }
@@ -98,10 +130,10 @@ class AuthService {
    */
   isAuthenticated(): boolean {
     if (typeof window === 'undefined') return false;
-    
+
     const accessToken = localStorage.getItem('accessToken');
     const user = this.getCurrentUser();
-    
+
     return !!(accessToken && user);
   }
 
@@ -110,27 +142,29 @@ class AuthService {
    * POST /auth/refresh
    */
   async refreshToken(): Promise<{ accessToken: string; refreshToken: string }> {
-    const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
-    
+    const refreshToken =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('refreshToken')
+        : null;
+
     if (!refreshToken) {
       throw new Error('No refresh token available');
     }
 
     try {
-      const response = await apiClient.post<{ accessToken: string; refreshToken: string }>(
-        '/auth/refresh',
-        { refreshToken }
-      );
+      const response = await apiClient.post<{
+        accessToken: string;
+        refreshToken: string;
+      }>('/auth/refresh', { refreshToken });
 
-      const { accessToken, refreshToken: newRefreshToken } = response.data.data;
+      const { accessToken, refreshToken: newRefreshToken } =
+        response.data.data;
 
-      // Update stored tokens
       apiClient.setAccessToken(accessToken);
       apiClient.setRefreshToken(newRefreshToken);
 
       return { accessToken, refreshToken: newRefreshToken };
     } catch (error) {
-      // Refresh failed - clear everything
       apiClient.clearTokens();
       throw error;
     }

@@ -57,7 +57,10 @@ export interface PromoCodesResponse {
     page: number;
     limit: number;
     totalPages: number;
-    totalCount: number;
+    /** Backend field */
+    total: number;
+    /** Legacy alias some clients expected */
+    totalCount?: number;
   };
 }
 

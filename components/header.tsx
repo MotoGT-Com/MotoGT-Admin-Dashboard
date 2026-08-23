@@ -1,8 +1,7 @@
 "use client"
 
-import { Bell, Search, Settings, User, Moon, Sun, PanelLeft, PanelRight, ShoppingCart, Package, AlertCircle, LogOut } from 'lucide-react'
+import { Bell, Moon, Sun, PanelLeft, PanelRight, User, LogOut } from 'lucide-react'
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,69 +13,32 @@ import {
 import { useState, useEffect } from "react"
 import { useSidebar } from "./sidebar-context"
 import { useAuth } from "@/lib/context/auth-context"
-import Link from "next/link"
-
-type Notification = {
-  id: string
-  type: 'new_order' | 'order_update'
-  orderId: string
-  message: string
-  timestamp: string
-  read: boolean
-}
+import { useMockRole } from "@/lib/context/mock-role-context"
+import {
+  ADMIN_ROLES,
+  ADMIN_ROLE_LABELS,
+  canAccessAdminSettings,
+  normalizeAdminRole,
+  type AdminRole,
+} from "@/lib/domain/admin-roles"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 export function Header() {
   const [theme, setThemeState] = useState<'light' | 'dark'>('light')
   const [mounted, setMounted] = useState(false)
   const { isCollapsed, toggleCollapse } = useSidebar()
   const { user, logout } = useAuth()
-
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      type: 'new_order',
-      orderId: 'JO-2025-000045',
-      message: 'New order from Ahmad Alkurdi',
-      timestamp: '2 minutes ago',
-      read: false
-    },
-    {
-      id: '2',
-      type: 'order_update',
-      orderId: 'JO-2025-000039',
-      message: 'Order delivered to customer',
-      timestamp: '15 minutes ago',
-      read: false
-    },
-    {
-      id: '3',
-      type: 'new_order',
-      orderId: 'JO-2025-000044',
-      message: 'New order from Jamal Amir',
-      timestamp: '1 hour ago',
-      read: false
-    },
-    {
-      id: '4',
-      type: 'order_update',
-      orderId: 'JO-2025-000038',
-      message: 'Payment confirmed for order',
-      timestamp: '2 hours ago',
-      read: true
-    }
-  ])
-
-  const unreadCount = notifications.filter(n => !n.read).length
-
-  const markAsRead = (id: string) => {
-    setNotifications(notifications.map(n => 
-      n.id === id ? { ...n, read: true } : n
-    ))
-  }
-
-  const markAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })))
-  }
+  const { role, setRole } = useMockRole()
+  const authRole = normalizeAdminRole(user?.role)
+  const canPreviewRoles = authRole
+    ? canAccessAdminSettings(authRole)
+    : false
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark'
@@ -98,7 +60,7 @@ export function Header() {
 
   return (
     <header className="fixed top-0 right-0 left-0 border-b border-border bg-card h-16 z-20" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
-      <div className="flex items-center justify-between px-6 h-full">
+      <div className="flex items-center justify-between px-4 sm:px-6 h-full pl-14 md:pl-6">
         <Button
           variant="ghost"
           size="icon"
@@ -110,57 +72,46 @@ export function Header() {
 
         {/* Right side controls */}
         <div className="flex items-center gap-4 ml-auto">
-          {/* Notifications */}
+          {/* Super Admin only — preview nav as other roles */}
+          {canPreviewRoles ? (
+            <div className="hidden sm:flex items-center gap-2 rounded-md border border-dashed border-border px-2 py-1">
+              <span className="text-xs text-muted-foreground">Preview as</span>
+              <Select
+                value={role}
+                onValueChange={(v) => setRole(v as AdminRole)}
+              >
+                <SelectTrigger className="h-7 w-[150px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ADMIN_ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {ADMIN_ROLE_LABELS[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
+          {/* Notifications — not wired yet */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
+              <Button variant="ghost" size="icon" aria-label="Notifications">
                 <Bell size={20} />
-                {unreadCount > 0 && (
-                  <span className="absolute top-2 right-2 w-2 h-2 bg-destructive rounded-full" />
-                )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              <div className="flex items-center justify-between px-4 py-2">
-                <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
-                {unreadCount > 0 && (
-                  <Button variant="ghost" size="sm" className="h-auto py-1 px-2 text-xs" onClick={markAllAsRead}>
-                    Mark all read
-                  </Button>
-                )}
-              </div>
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuLabel>Notifications</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <div className="max-h-[400px] overflow-y-auto">
-                {notifications.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground text-sm">
-                    No notifications
-                  </div>
-                ) : (
-                  notifications.map((notification) => (
-                    <Link key={notification.id} href={`/dashboard/orders/${notification.orderId}`}>
-                      <DropdownMenuItem 
-                        className={`flex items-start gap-3 p-4 cursor-pointer ${!notification.read ? 'bg-accent/50' : ''}`}
-                        onClick={() => markAsRead(notification.id)}
-                      >
-                        <div className={`mt-0.5 ${notification.type === 'new_order' ? 'text-primary' : 'text-blue-500'}`}>
-                          {notification.type === 'new_order' ? (
-                            <ShoppingCart size={18} />
-                          ) : (
-                            <Package size={18} />
-                          )}
-                        </div>
-                        <div className="flex-1 space-y-1">
-                          <p className="text-sm font-medium">{notification.message}</p>
-                          <p className="text-xs text-muted-foreground">Order #{notification.orderId}</p>
-                          <p className="text-xs text-muted-foreground">{notification.timestamp}</p>
-                        </div>
-                        {!notification.read && (
-                          <div className="w-2 h-2 rounded-full bg-primary mt-2" />
-                        )}
-                      </DropdownMenuItem>
-                    </Link>
-                  ))
-                )}
+              <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                  <Bell className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium">Coming soon</p>
+                <p className="text-xs text-muted-foreground max-w-[200px]">
+                  Live order alerts aren&apos;t set up yet. Check back later.
+                </p>
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -186,9 +137,13 @@ export function Header() {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{user?.email || 'Admin'}</p>
-                  <p className="text-xs leading-none text-muted-foreground capitalize">
-                    {user?.role || 'Administrator'}
+                  <p className="text-sm font-medium leading-none">
+                    {user?.name || user?.email || "Admin"}
+                  </p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {user?.role
+                      ? ADMIN_ROLE_LABELS[user.role] ?? user.role
+                      : "Administrator"}
                   </p>
                 </div>
               </DropdownMenuLabel>

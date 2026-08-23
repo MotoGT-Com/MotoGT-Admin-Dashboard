@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingState } from "@/components/loading-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,7 +41,9 @@ import {
   Save,
   XCircle,
   Plus,
+  ExternalLink,
 } from "lucide-react";
+import { buildStorefrontProductUrl } from "@/lib/products/catalog-helpers";
 import { Separator } from "@/components/ui/separator";
 import {
   productService,
@@ -655,12 +657,7 @@ export default function ProductDetailPage() {
   };
 
   if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-96 w-full" />
-      </div>
-    );
+    return <LoadingState variant="full" label="Loading product…" />;
   }
 
   if (!product) {
@@ -676,26 +673,28 @@ export default function ProductDetailPage() {
   const hasVariants = Boolean(product.variants && product.variants.length > 0);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3 min-w-0">
           <Button
             variant="ghost"
             size="sm"
+            className="shrink-0"
             onClick={() => router.push("/dashboard/products")}
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Products
+            <span className="hidden sm:inline">Back to Products</span>
+            <span className="sm:hidden">Back</span>
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold">{product.name}</h1>
-            <p className="text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold break-words">{product.name}</h1>
+            <p className="text-muted-foreground text-sm">
               Item Code: {product.itemCode}
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isEditing ? (
             <>
               <Button
@@ -722,6 +721,16 @@ export default function ProductDetailPage() {
             </>
           ) : (
             <>
+              <Button variant="outline" asChild>
+                <a
+                  href={buildStorefrontProductUrl(product)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  View on MotoGT
+                </a>
+              </Button>
               <Button variant="outline" onClick={handleEditMode}>
                 <Edit className="h-4 w-4 mr-2" />
                 Edit

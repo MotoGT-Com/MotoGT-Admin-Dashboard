@@ -38,13 +38,13 @@ import {
   Pencil,
   Trash2,
   Store as StoreIcon,
-  Globe,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { carService, BrandData, Car } from "@/lib/services/car.service";
 import { settingsService } from "@/lib/services/settings.service";
 import { uploadService } from "@/lib/services/upload.service";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/loading-state";
 
 type DialogMode = "add-model" | "edit-brand" | "add-brand" | null;
 type DeleteTarget =
@@ -57,9 +57,8 @@ export default function CarsPage() {
   const [loading, setLoading] = useState(true);
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
 
-  // Store and Language state
+  // Store and Language state (language is auto-selected; not shown in UI)
   const [stores, setStores] = useState<any[]>([]);
-  const [languages, setLanguages] = useState<any[]>([]);
   const [selectedStore, setSelectedStore] = useState<any | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState<any | null>(null);
   const [storesLoading, setStoresLoading] = useState(true);
@@ -98,7 +97,6 @@ export default function CarsPage() {
         ]);
 
         setStores(fetchedStores);
-        setLanguages(fetchedLanguages);
 
         // Set selected store from localStorage or first store
         const savedStore = settingsService.getSelectedStore();
@@ -109,7 +107,7 @@ export default function CarsPage() {
           settingsService.setSelectedStore(fetchedStores[0].id);
         }
 
-        // Set selected language from localStorage or first language
+        // Auto-select language (selector removed from UI)
         const savedLanguage = settingsService.getSelectedLanguage();
         if (
           savedLanguage &&
@@ -175,17 +173,6 @@ export default function CarsPage() {
         description: `Switched to ${store.name}`,
       });
       // Cars will be refetched automatically via useEffect
-    }
-  };
-
-  const handleLanguageChange = (languageId: string) => {
-    const language = languages.find((l) => l.id === languageId);
-    if (language) {
-      setSelectedLanguage(language);
-      settingsService.setSelectedLanguage(languageId);
-      toast.success("Language Changed", {
-        description: `Switched to ${language.name}`,
-      });
     }
   };
 
@@ -519,40 +506,36 @@ export default function CarsPage() {
 
   if (storesLoading || loading || !selectedStore) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-          <p className="mt-2 text-muted-foreground">
-            {storesLoading ? "Loading stores..." : "Loading cars..."}
-          </p>
-        </div>
-      </div>
+      <LoadingState
+        variant="full"
+        label={storesLoading ? "Loading stores…" : "Loading cars…"}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Car Database</h1>
-          <p className="text-muted-foreground mt-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Car Database</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             Manage car brands and models for product compatibility
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={handleAddBrand}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="gap-2 flex-1 sm:flex-none" onClick={handleAddBrand}>
             <Plus size={16} />
             Add Brand
           </Button>
-          <Button className="gap-2" onClick={handleAddModelTopLevel}>
+          <Button className="gap-2 flex-1 sm:flex-none" onClick={handleAddModelTopLevel}>
             <Plus size={16} />
             Add Model
           </Button>
         </div>
       </div>
 
-      {/* Store and Language Selector */}
+      {/* Store Selector */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4">
@@ -579,34 +562,6 @@ export default function CarsPage() {
                   {stores.map((store) => (
                     <SelectItem key={store.id} value={store.id}>
                       {store.name} ({store.currencyCode})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1 min-w-[200px] space-y-2">
-              <Label className="flex items-center gap-2">
-                <Globe size={16} />
-                Language
-              </Label>
-              <Select
-                value={selectedLanguage?.id || ""}
-                onValueChange={handleLanguageChange}
-                disabled={languages.length === 0}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue
-                    placeholder={
-                      languages.length === 0
-                        ? "No languages available"
-                        : "Select language"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {languages.map((language) => (
-                    <SelectItem key={language.id} value={language.id}>
-                      {language.name} ({language.code})
                     </SelectItem>
                   ))}
                 </SelectContent>

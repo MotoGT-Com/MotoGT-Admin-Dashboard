@@ -11,7 +11,6 @@ import {
   Eye,
   ShieldCheck,
   ShieldX,
-  Loader2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -30,6 +29,8 @@ import {
   UserStatus,
   UserRole,
 } from "@/lib/services/user.service";
+import { LoadingState } from "@/components/loading-state";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 export default function UsersPage() {
@@ -170,8 +171,8 @@ export default function UsersPage() {
         </p>
       </div>
 
-      <div className="flex gap-3 items-center">
-        <div className="flex-1 relative">
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative w-full min-w-0 sm:flex-1">
           <Input
             placeholder="Search by email, name, or phone..."
             className="bg-background border-border"
@@ -324,8 +325,18 @@ export default function UsersPage() {
       </div>
 
       <Card className="bg-card border-border">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
+        <CardContent className="p-0 relative">
+          {loading && users.length > 0 ? (
+            <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/20">
+              <div className="h-full w-1/3 animate-pulse bg-primary" />
+            </div>
+          ) : null}
+          <div
+            className={cn(
+              "overflow-x-auto transition-opacity",
+              loading && users.length > 0 && "opacity-60 pointer-events-none",
+            )}
+          >
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
@@ -370,13 +381,10 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
+                {loading && users.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-20 text-center">
-                      <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-                      <p className="mt-2 text-muted-foreground">
-                        Loading users...
-                      </p>
+                    <td colSpan={10} className="p-0">
+                      <LoadingState label="Loading users…" />
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
@@ -517,7 +525,7 @@ export default function UsersPage() {
             </table>
           </div>
 
-          <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-4 border-t border-border">
             <div className="flex items-center gap-2">
               <select
                 className="bg-background border border-border rounded px-3 py-2 text-sm"
@@ -534,10 +542,13 @@ export default function UsersPage() {
                 Rows per page
               </span>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
               <span className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages || 1} ({totalUsers} total
-                users)
+                Page {currentPage} of {totalPages || 1}
+                <span className="hidden sm:inline">
+                  {" "}
+                  ({totalUsers} total users)
+                </span>
               </span>
               <div className="flex gap-1">
                 <Button

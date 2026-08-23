@@ -11,18 +11,16 @@ import {
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { DashboardTopProduct } from '@/lib/services/dashboard.service';
-import { formatCompactNumber, formatMoney } from '@/lib/dashboard-utils';
+import { formatCompactNumber } from '@/lib/dashboard-utils';
 
 interface TopProductsProps {
   products: DashboardTopProduct[];
-  currencyCode: string;
   periodLabel: string;
   loading?: boolean;
 }
 
 export function TopProducts({
   products,
-  currencyCode,
   periodLabel,
   loading,
 }: TopProductsProps) {
@@ -49,8 +47,8 @@ export function TopProducts({
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="pb-2 font-medium">Product</th>
-                  <th className="pb-2 font-medium text-right">Units</th>
-                  <th className="pb-2 font-medium text-right">Revenue</th>
+                  <th className="pb-2 font-medium">Car</th>
+                  <th className="pb-2 font-medium text-right">Units sold</th>
                 </tr>
               </thead>
               <tbody>
@@ -77,17 +75,22 @@ export function TopProducts({
                         </div>
                         <div className="min-w-0">
                           <p className="font-medium truncate">{product.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {product.itemCode}
-                          </p>
+                          {product.itemCode &&
+                          product.itemCode !== product.name ? (
+                            <p className="text-xs text-muted-foreground">
+                              {product.itemCode}
+                            </p>
+                          ) : null}
                         </div>
                       </Link>
                     </td>
-                    <td className="py-3 text-right tabular-nums">
-                      {formatCompactNumber(product.units)}
+                    <td className="py-3 pr-3 text-muted-foreground">
+                      <span className="line-clamp-2">
+                        {product.car?.trim() || '—'}
+                      </span>
                     </td>
-                    <td className="py-3 text-right tabular-nums">
-                      {formatMoney(product.revenue, currencyCode)}
+                    <td className="py-3 text-right tabular-nums font-medium">
+                      {formatCompactNumber(product.units)}
                     </td>
                   </tr>
                 ))}

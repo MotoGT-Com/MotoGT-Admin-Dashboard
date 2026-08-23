@@ -1,7 +1,11 @@
 import { apiClient } from '../api-client';
-import { User } from './user.service';
+import type {
+  AccountStatus,
+  ChannelPaymentMethod,
+  OrderChannel,
+  OrderKind,
+} from '../domain/channels';
 
-// Types based on API spec
 export interface PaymentMethod {
   type: 'credit_card' | 'cod' | 'cliq' | 'card_on_delivery' | string;
   isPrepaid: boolean;
@@ -12,7 +16,7 @@ export interface PaymentMethod {
 
 export interface Payment {
   id: string;
-  status: 'pending' | 'captured' | 'failed' | 'refunded';
+  status: 'pending' | 'captured' | 'failed' | 'refunded' | string;
   provider: string;
   amount: string;
   currency: string;
@@ -24,35 +28,74 @@ export interface Customer {
   lastName: string;
   email: string;
   phone: string;
+  accountStatus?: AccountStatus | null;
+}
+
+export interface OrderLineItem {
+  productId?: string;
+  sku?: string;
+  name?: string;
+  quantity: number;
+  unitPrice?: number | string;
+  totalPrice?: number | string;
 }
 
 export interface Order {
   id: string;
   orderNumber: string;
-  userId: string;
+  userId: string | null;
   storeId: string;
   totalAmount: number | string;
   currency: string;
-  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  status:
+    | 'pending'
+    | 'confirmed'
+    | 'processing'
+    | 'shipped'
+    | 'delivered'
+    | 'cancelled'
+    | 'refunded'
+    | string;
   paymentMethod: PaymentMethod | null;
   payment: Payment | null;
   isPaid: boolean;
-  customer: Customer;
+  customer: Customer | null;
   shippingAddress?: any;
   billingAddress?: any;
   createdAt: string;
   updatedAt: string;
   itemCount?: number;
+  channel?: OrderChannel | string;
+  orderType?: OrderKind | OrderChannel | string;
+  accountStatus?: AccountStatus | null;
+  discountAmount?: number | string;
+  discountCode?: string | null;
+  notes?: string | null;
+  city?: string | null;
+  staffMember?: string | null;
+  staffUserId?: string | null;
+  lineItems?: OrderLineItem[];
 }
 
 export interface OrdersListParams {
   storeId: string;
   page?: number;
   limit?: number;
-  status?: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  status?: string;
   payment_method?: string;
-  sortBy?: 'createdAt';
+  sortBy?: 'createdAt' | 'totalAmount';
   sortOrder?: 'asc' | 'desc';
+  channel?: OrderChannel | string;
+  orderType?: OrderChannel | OrderKind | string;
+  customerId?: string;
+  q?: string;
+  city?: string;
+  from?: string;
+  to?: string;
+  amountMin?: number;
+  amountMax?: number;
+  hasDiscount?: boolean;
+  needsAttention?: boolean;
 }
 
 export interface OrdersListResponse {
@@ -63,7 +106,14 @@ export interface OrdersListResponse {
 }
 
 export interface UpdateOrderStatusRequest {
-  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  status:
+    | 'pending'
+    | 'confirmed'
+    | 'processing'
+    | 'shipped'
+    | 'delivered'
+    | 'cancelled'
+    | 'refunded';
 }
 
 export interface ShipOrderRequest {
@@ -87,6 +137,28 @@ export interface RefundOrderRequest {
   amount?: number;
   reason: string;
   refundDescription: string;
+}
+
+export interface CreateChannelOrderItem {
+  productId: string;
+  quantity: number;
+}
+
+export interface CreateChannelOrderRequest {
+  storeId: string;
+  channel: 'in_store' | 'whatsapp';
+  customerId?: string | null;
+  newCustomer?: {
+    name: string;
+    phone: string;
+    email?: string;
+  };
+  items: CreateChannelOrderItem[];
+  paymentMethod: ChannelPaymentMethod;
+  markPaid?: boolean;
+  notes?: string;
+  discountAmount?: number;
+  discountCode?: string | null;
 }
 
 export interface GuestOrderItem {
@@ -119,7 +191,14 @@ export interface GuestOrderItem {
 export interface GuestOrder {
   id: string;
   orderNumber: string;
-  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  status:
+    | 'pending'
+    | 'confirmed'
+    | 'processing'
+    | 'shipped'
+    | 'delivered'
+    | 'cancelled'
+    | 'refunded';
   storeId: string;
   guestEmail: string;
   guestPhone: string;
@@ -136,7 +215,14 @@ export interface GuestOrdersListParams {
   storeId: string;
   page?: number;
   limit?: number;
-  status?: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  status?:
+    | 'pending'
+    | 'confirmed'
+    | 'processing'
+    | 'shipped'
+    | 'delivered'
+    | 'cancelled'
+    | 'refunded';
   email?: string;
 }
 
@@ -155,11 +241,39 @@ class OrderService {
    */
   async getOrders(params: OrdersListParams): Promise<OrdersListResponse> {
     try {
-      const response = await apiClient.get<OrdersListResponse>('/admin/orders', params);
+      const response = await apiClient.get<OrdersListResponse>(
+        '/admin/orders',
+        params,
+      );
       return response.data.data;
     } catch (error: any) {
       console.error('Get orders error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch orders');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to fetch orders',
+      );
+    }
+  }
+
+  /**
+   * Create in-store / WhatsApp channel order (admin)
+   * POST /admin/orders
+   */
+  async createChannelOrder(
+    data: CreateChannelOrderRequest,
+    idempotencyKey: string,
+  ): Promise<Order> {
+    try {
+      const response = await apiClient.post<Order>('/admin/orders', data, {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      });
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Create channel order error:', error);
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to create order',
+      );
     }
   }
 
@@ -173,7 +287,9 @@ class OrderService {
       return response.data.data;
     } catch (error: any) {
       console.error('Get order error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch order details');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to fetch order details',
+      );
     }
   }
 
@@ -181,13 +297,20 @@ class OrderService {
    * Update order status (admin)
    * PATCH /admin/orders/{orderId}/status
    */
-  async updateOrderStatus(orderId: string, status: UpdateOrderStatusRequest['status']): Promise<any> {
+  async updateOrderStatus(
+    orderId: string,
+    status: UpdateOrderStatusRequest['status'],
+  ): Promise<any> {
     try {
-      const response = await apiClient.patch(`/admin/orders/${orderId}/status`, { status });
+      const response = await apiClient.patch(`/admin/orders/${orderId}/status`, {
+        status,
+      });
       return response.data.data;
     } catch (error: any) {
       console.error('Update order status error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to update order status');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to update order status',
+      );
     }
   }
 
@@ -197,11 +320,16 @@ class OrderService {
    */
   async shipOrder(orderId: string, data: ShipOrderRequest): Promise<any> {
     try {
-      const response = await apiClient.post(`/admin/orders/${orderId}/ship`, data);
+      const response = await apiClient.post(
+        `/admin/orders/${orderId}/ship`,
+        data,
+      );
       return response.data.data;
     } catch (error: any) {
       console.error('Ship order error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to ship order');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to ship order',
+      );
     }
   }
 
@@ -211,11 +339,16 @@ class OrderService {
    */
   async deliverOrder(orderId: string, data: DeliverOrderRequest): Promise<any> {
     try {
-      const response = await apiClient.post(`/admin/orders/${orderId}/deliver`, data);
+      const response = await apiClient.post(
+        `/admin/orders/${orderId}/deliver`,
+        data,
+      );
       return response.data.data;
     } catch (error: any) {
       console.error('Deliver order error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to deliver order');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to deliver order',
+      );
     }
   }
 
@@ -225,11 +358,16 @@ class OrderService {
    */
   async cancelOrder(orderId: string, data: CancelOrderRequest): Promise<any> {
     try {
-      const response = await apiClient.post(`/admin/orders/${orderId}/cancel`, data);
+      const response = await apiClient.post(
+        `/admin/orders/${orderId}/cancel`,
+        data,
+      );
       return response.data.data;
     } catch (error: any) {
       console.error('Cancel order error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to cancel order');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to cancel order',
+      );
     }
   }
 
@@ -243,7 +381,10 @@ class OrderService {
       return response.data.data;
     } catch (error: any) {
       console.error('Get guest order error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch guest order details');
+      throw new Error(
+        error.response?.data?.error?.message ||
+          'Failed to fetch guest order details',
+      );
     }
   }
 
@@ -251,13 +392,20 @@ class OrderService {
    * Get list of guest orders (admin)
    * GET /admin/orders/guest
    */
-  async getGuestOrders(params: GuestOrdersListParams): Promise<GuestOrdersListResponse> {
+  async getGuestOrders(
+    params: GuestOrdersListParams,
+  ): Promise<GuestOrdersListResponse> {
     try {
-      const response = await apiClient.get<GuestOrdersListResponse>('/admin/orders/guest', params);
+      const response = await apiClient.get<GuestOrdersListResponse>(
+        '/admin/orders/guest',
+        params,
+      );
       return response.data.data;
     } catch (error: any) {
       console.error('Get guest orders error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch guest orders');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to fetch guest orders',
+      );
     }
   }
 
@@ -267,11 +415,16 @@ class OrderService {
    */
   async refundOrder(orderId: string, data: RefundOrderRequest): Promise<any> {
     try {
-      const response = await apiClient.post(`/admin/orders/${orderId}/refund`, data);
+      const response = await apiClient.post(
+        `/admin/orders/${orderId}/refund`,
+        data,
+      );
       return response.data.data;
     } catch (error: any) {
       console.error('Refund order error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to refund order');
+      throw new Error(
+        error.response?.data?.error?.message || 'Failed to refund order',
+      );
     }
   }
 }
