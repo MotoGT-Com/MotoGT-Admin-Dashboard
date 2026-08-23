@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/table";
 import { Edit2, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/loading-state";
 import {
   productCarCompatibilityService,
   type ProductCarCompatibility,
@@ -750,10 +751,7 @@ export function ProductCarTrimsManager({
                 ) : null}
 
                 {loading ? (
-                  <div className="flex items-center justify-center py-10 text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Loading trims…
-                  </div>
+                  <LoadingState label="Loading trims…" className="py-10" />
                 ) : drafts.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8 border rounded-lg">
                     No trims yet. Click Add Trim to begin.

@@ -44,6 +44,7 @@ import { carService, BrandData, Car } from "@/lib/services/car.service";
 import { settingsService } from "@/lib/services/settings.service";
 import { uploadService } from "@/lib/services/upload.service";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/loading-state";
 
 type DialogMode = "add-model" | "edit-brand" | "add-brand" | null;
 type DeleteTarget =
@@ -505,33 +506,29 @@ export default function CarsPage() {
 
   if (storesLoading || loading || !selectedStore) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-          <p className="mt-2 text-muted-foreground">
-            {storesLoading ? "Loading stores..." : "Loading cars..."}
-          </p>
-        </div>
-      </div>
+      <LoadingState
+        variant="full"
+        label={storesLoading ? "Loading stores…" : "Loading cars…"}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Car Database</h1>
-          <p className="text-muted-foreground mt-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Car Database</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             Manage car brands and models for product compatibility
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={handleAddBrand}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="gap-2 flex-1 sm:flex-none" onClick={handleAddBrand}>
             <Plus size={16} />
             Add Brand
           </Button>
-          <Button className="gap-2" onClick={handleAddModelTopLevel}>
+          <Button className="gap-2 flex-1 sm:flex-none" onClick={handleAddModelTopLevel}>
             <Plus size={16} />
             Add Model
           </Button>

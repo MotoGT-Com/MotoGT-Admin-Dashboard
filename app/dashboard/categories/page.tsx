@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingState } from "@/components/loading-state";
 import {
   Select,
   SelectContent,
@@ -459,33 +459,28 @@ export default function CategoriesPage() {
   );
 
   if (storesLoading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-96 w-full" />
-      </div>
-    );
+    return <LoadingState variant="full" label="Loading stores…" />;
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Categories</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Categories</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Manage your product categories and subcategories
           </p>
         </div>
-        <Button onClick={handleOpenAddDialog} className="gap-2">
+        <Button onClick={handleOpenAddDialog} className="gap-2 w-full sm:w-auto shrink-0">
           <Plus size={18} />
           Add Category
         </Button>
       </div>
 
       {/* Store & Language Selection */}
-      <div className="flex gap-4">
-        <div className="w-64">
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="w-full sm:w-64">
           <Label>Store</Label>
           <Select
             value={selectedStore?.id || ""}
@@ -507,7 +502,7 @@ export default function CategoriesPage() {
           </Select>
         </div>
 
-        <div className="w-64">
+        <div className="w-full sm:w-64">
           <Label>Language</Label>
           <Select
             value={selectedLanguage?.id || ""}
@@ -596,18 +591,26 @@ export default function CategoriesPage() {
           <CardTitle>All Categories</CardTitle>
         </CardHeader>
         <CardContent>
-          {categoriesLoading ? (
-            <div className="space-y-2">
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-12 w-full" />
-              ))}
-            </div>
-          ) : categories.length === 0 ? (
+          <div className="relative">
+            {categoriesLoading && categories.length > 0 ? (
+              <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/20">
+                <div className="h-full w-1/3 animate-pulse bg-primary" />
+              </div>
+            ) : null}
+            {categoriesLoading && categories.length === 0 ? (
+              <LoadingState label="Loading categories…" />
+            ) : categories.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               No categories found. Click "Add Category" to create one.
             </div>
           ) : (
-            <div className="space-y-1">
+            <div
+              className={
+                categoriesLoading
+                  ? "space-y-1 opacity-60 pointer-events-none transition-opacity"
+                  : "space-y-1 transition-opacity"
+              }
+            >
               {parentCategories.map((category) => {
                 const subcats = category.subcategories || [];
                 return (
@@ -681,6 +684,7 @@ export default function CategoriesPage() {
               })}
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 
@@ -794,7 +798,7 @@ export default function CategoriesPage() {
                   <SelectContent>
                     {productTypesLoading ? (
                       <div className="p-2 text-center text-sm text-muted-foreground">
-                        Loading...
+                        <LoadingState variant="compact" label="Loading…" />
                       </div>
                     ) : (
                       Array.isArray(productTypes) &&

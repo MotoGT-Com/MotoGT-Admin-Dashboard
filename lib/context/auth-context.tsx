@@ -53,6 +53,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const userData: User = {
         userId: response.userId,
         email: response.email,
+        name: response.name ?? null,
         role: response.role,
         isEmailVerified: response.isEmailVerified,
       };

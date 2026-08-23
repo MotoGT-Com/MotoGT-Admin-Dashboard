@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Phone,
   Minus,
   Plus,
   Trash2,
@@ -18,13 +17,14 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  generateChannelOrderNumber,
-  recordChannelOrder,
-  type PaymentMethod,
-  type CartLine,
-} from "@/lib/mock-data/in-store";
+import type { CartLine } from "@/lib/orders/cart";
+import type { ChannelPaymentMethod } from "@/lib/domain/channels";
+import { orderService } from "@/lib/services/order.service";
+import { resolveStoreId } from "@/lib/stores/resolve-store-id";
 import { userService, type User } from "@/lib/services/user.service";
+import {
+  displayCustomerEmail,
+} from "@/lib/customers/email";
 import {
   NewCustomerForm,
   type NewCustomerFormValues,
@@ -35,9 +35,16 @@ import {
   type StepState,
 } from "@/components/in-store/step-indicator";
 import { ProductPicker } from "@/components/in-store/product-picker";
+import { PhoneInput, phoneValueToString, isPhoneReady, type PhoneValue } from "@/components/ui/phone-input";
+import {
+  DEFAULT_DIAL,
+  phoneSearchVariants,
+} from "@/lib/phone";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 export type OrderEntryChannel = "in_store" | "whatsapp";
+type PaymentMethod = ChannelPaymentMethod;
 
 // Customers resolve against the real users API (GET /admin/users). "new"
 // customers stay local until the backend exposes an admin create-customer
@@ -47,31 +54,49 @@ type ResolvedCustomer =
   | { kind: "new"; name: string; phone: string; email: string };
 
 const userDisplayName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+  [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+  displayCustomerEmail(user.email) ||
+  "Customer";
 
 const userPhone = (user: User): string =>
   user.phoneNumber || user.phone || "";
 
-const normalizePhone = (phone: string): string => phone.replace(/[\s-]/g, "");
-
 const paymentOptions: { value: PaymentMethod; label: string }[] = [
   { value: "cash", label: "Cash" },
   { value: "card", label: "Card" },
+  { value: "cliq", label: "Cliq" },
   { value: "other", label: "Other" },
 ];
 
 const paymentLabels: Record<PaymentMethod, string> = {
   cash: "Cash",
   card: "Card",
+  cliq: "Cliq",
   other: "Other",
 };
+
+/** Rewrite API insufficient-stock errors to use cart product names. */
+function formatChannelOrderError(message: string, cart: CartLine[]): string {
+  const match = message.match(
+    /Insufficient stock for product ([0-9a-f-]{36})\.?\s*Requested:?\s*(\d+)/i,
+  );
+  if (!match) return message;
+  const productId = match[1];
+  const requested = match[2];
+  const line = cart.find((l) => l.productId === productId);
+  const name = line?.name?.trim() || productId;
+  if (line?.stockQuantity != null) {
+    return `Not enough stock for "${name}". Requested ${requested}; only ${line.stockQuantity} available.`;
+  }
+  return `Not enough stock for "${name}". Requested ${requested}.`;
+}
 
 const channelCopy: Record<
   OrderEntryChannel,
   { title: string; subtitle: string; completeLabel: string; cancelLabel: string }
 > = {
   in_store: {
-    title: "Offline order",
+    title: "In-Store order",
     subtitle:
       "Look up the customer, build the cart, and complete the sale at the counter.",
     completeLabel: "Complete Sale",
@@ -114,30 +139,47 @@ export function ChannelOrderForm({
 }: ChannelOrderFormProps) {
   const copy = channelCopy[channel];
   // --- Step 1: Customer ---
-  const [phoneQuery, setPhoneQuery] = useState("");
+  const [phoneValue, setPhoneValue] = useState<PhoneValue>({
+    dial: DEFAULT_DIAL,
+    national: "",
+  });
+  const [emailQuery, setEmailQuery] = useState("");
   const [lookupAttempted, setLookupAttempted] = useState(false);
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [resolvedCustomer, setResolvedCustomer] =
     useState<ResolvedCustomer | null>(null);
 
+  const fullPhoneQuery = phoneValueToString(phoneValue);
+  const canLookupPhone = isPhoneReady(phoneValue.dial, phoneValue.national);
+  const canLookupEmail =
+    emailQuery.trim().includes("@") && emailQuery.trim().length >= 5;
+  const canLookup = canLookupPhone || canLookupEmail;
+
   const handleLookup = async () => {
-    const query = phoneQuery.trim();
-    if (!query || isLookingUp) return;
+    if (!canLookup || isLookingUp) return;
     setIsLookingUp(true);
     try {
-      // Search real customers by phone via GET /admin/users?q=...
-      const result = await userService.listUsers({
-        q: query,
-        role: "customer",
-        limit: 10,
-      });
-      const normalized = normalizePhone(query);
-      const match =
-        result.items.find(
-          (u) => normalizePhone(userPhone(u)) === normalized
-        ) ?? result.items[0];
+      let match: User | null = null;
+
+      if (canLookupEmail) {
+        match = await userService.findCustomerByEmail(emailQuery.trim());
+      }
+
+      if (!match && canLookupPhone) {
+        match = await userService.findCustomerByPhone(fullPhoneQuery, {
+          national: phoneValue.national,
+          qVariants: phoneSearchVariants(
+            phoneValue.dial,
+            phoneValue.national,
+          ),
+        });
+      }
+
       setLookupAttempted(true);
       setResolvedCustomer(match ? { kind: "existing", user: match } : null);
+      if (match) {
+        toast.success(`Found ${userDisplayName(match)}`);
+      }
     } catch (error: any) {
       toast.error(error.message || "Customer lookup failed");
     } finally {
@@ -149,10 +191,17 @@ export function ChannelOrderForm({
     setResolvedCustomer({ kind: "new", ...values });
   };
 
+  const handleUseExistingCustomer = (user: User) => {
+    setResolvedCustomer({ kind: "existing", user });
+    setLookupAttempted(false);
+    toast.success(`Using existing customer ${userDisplayName(user)}`);
+  };
+
   const resetCustomer = () => {
     setResolvedCustomer(null);
     setLookupAttempted(false);
-    setPhoneQuery("");
+    setPhoneValue({ dial: DEFAULT_DIAL, national: "" });
+    setEmailQuery("");
   };
 
   const customerName =
@@ -166,17 +215,60 @@ export function ChannelOrderForm({
   const [cart, setCart] = useState<CartLine[]>([]);
 
   const addToCart = (line: CartLine) => {
+    let toastMessage: string | null = null;
     setCart((prev) => {
       const existing = prev.find((l) => l.productId === line.productId);
+      const stockCap =
+        line.stockQuantity ?? existing?.stockQuantity ?? null;
+
       if (existing) {
+        const desired = existing.quantity + line.quantity;
+        if (stockCap != null && desired > stockCap) {
+          toastMessage =
+            existing.quantity >= stockCap
+              ? `No more stock available for "${existing.name}".`
+              : `Only ${stockCap} in stock for "${existing.name}".`;
+          if (existing.quantity >= stockCap) return prev;
+          return prev.map((l) =>
+            l.productId === line.productId
+              ? {
+                  ...l,
+                  quantity: stockCap,
+                  imageUrl: l.imageUrl || line.imageUrl,
+                  stockQuantity: stockCap,
+                }
+              : l,
+          );
+        }
         return prev.map((l) =>
           l.productId === line.productId
-            ? { ...l, quantity: l.quantity + line.quantity }
-            : l
+            ? {
+                ...l,
+                quantity: desired,
+                imageUrl: l.imageUrl || line.imageUrl,
+                stockQuantity: stockCap ?? l.stockQuantity,
+              }
+            : l,
         );
       }
-      return [...prev, line];
+
+      let qty = line.quantity;
+      if (stockCap != null) {
+        if (stockCap <= 0) {
+          toastMessage = `No more stock available for "${line.name}".`;
+          return prev;
+        }
+        if (qty > stockCap) {
+          toastMessage = `Only ${stockCap} in stock for "${line.name}".`;
+          qty = stockCap;
+        }
+      }
+      return [
+        ...prev,
+        { ...line, quantity: qty, stockQuantity: stockCap },
+      ];
     });
+    if (toastMessage) toast.error(toastMessage);
   };
 
   const updateCartQuantity = (productId: string, qty: number) => {
@@ -184,11 +276,19 @@ export function ChannelOrderForm({
       setCart((prev) => prev.filter((line) => line.productId !== productId));
       return;
     }
+    let toastMessage: string | null = null;
     setCart((prev) =>
-      prev.map((line) =>
-        line.productId === productId ? { ...line, quantity: qty } : line
-      )
+      prev.map((line) => {
+        if (line.productId !== productId) return line;
+        const stockCap = line.stockQuantity;
+        if (stockCap != null && qty > stockCap) {
+          toastMessage = `Only ${stockCap} in stock for "${line.name}".`;
+          return { ...line, quantity: stockCap };
+        }
+        return { ...line, quantity: qty };
+      }),
     );
+    if (toastMessage) toast.error(toastMessage);
   };
 
   const removeFromCart = (productId: string) => {
@@ -198,17 +298,30 @@ export function ChannelOrderForm({
   // --- WhatsApp conversation note (UI-only until backend) ---
   const [whatsappNote, setWhatsappNote] = useState("");
 
-  // --- Discount ---
+  // --- Discount (absolute JOD or % of subtotal) ---
+  const [discountMode, setDiscountMode] = useState<"amount" | "percent">(
+    "amount",
+  );
   const [discount, setDiscount] = useState("");
   const subtotal = cart.reduce(
     (sum, line) => sum + line.unitPrice * line.quantity,
     0
   );
-  // Guardrail: the applied discount is always clamped to [0, subtotal] so the
-  // total can never go negative, regardless of what's typed in the field.
-  const rawDiscount = Number(discount) || 0;
-  const discountAmount = Math.min(Math.max(rawDiscount, 0), subtotal);
-  const discountExceedsSubtotal = cart.length > 0 && rawDiscount > subtotal;
+  const rawDiscountInput = Number(discount) || 0;
+  const rawDiscountAmount =
+    discountMode === "percent"
+      ? (subtotal * Math.min(Math.max(rawDiscountInput, 0), 100)) / 100
+      : rawDiscountInput;
+  // Guardrail: applied discount is always clamped to [0, subtotal].
+  const discountAmount = Math.min(Math.max(rawDiscountAmount, 0), subtotal);
+  const discountExceedsSubtotal =
+    cart.length > 0 &&
+    discountMode === "amount" &&
+    rawDiscountInput > subtotal;
+  const discountPercentInvalid =
+    cart.length > 0 &&
+    discountMode === "percent" &&
+    rawDiscountInput > 100;
   const total = subtotal - discountAmount;
 
   // --- Step 3: Payment ---
@@ -227,6 +340,7 @@ export function ChannelOrderForm({
     resetCustomer();
     setCart([]);
     setDiscount("");
+    setDiscountMode("amount");
     setPaymentMethod(null);
     setWhatsappNote("");
     setConfirmingCancel(false);
@@ -236,78 +350,114 @@ export function ChannelOrderForm({
   const [completedSale, setCompletedSale] = useState<CompletedSale | null>(
     null
   );
+  const [submitting, setSubmitting] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const canComplete =
     Boolean(resolvedCustomer) && cart.length > 0 && Boolean(paymentMethod);
 
-  const handleCompleteSale = () => {
-    if (!canComplete || !resolvedCustomer || !paymentMethod) return;
-    const orderNumber = generateChannelOrderNumber(channel);
+  const handleCompleteSale = async () => {
+    if (!canComplete || !resolvedCustomer || !paymentMethod || submitting) return;
+
+    const overstock = cart.find(
+      (line) =>
+        line.stockQuantity != null && line.quantity > line.stockQuantity,
+    );
+    if (overstock) {
+      toast.error(
+        `Not enough stock for "${overstock.name}". Requested ${overstock.quantity}; only ${overstock.stockQuantity} available.`,
+      );
+      return;
+    }
 
     const phone =
       resolvedCustomer.kind === "existing"
         ? userPhone(resolvedCustomer.user)
         : resolvedCustomer.phone;
 
-    // BACKEND GAP: there is no order-creation endpoint yet (POST
-    // /admin/orders or similar). The sale is recorded session-locally so the
-    // confirmation flow works; this call becomes the real API request later.
-    const { order, customerId } = recordChannelOrder({
-      orderNumber,
-      customerId:
-        resolvedCustomer.kind === "existing"
-          ? resolvedCustomer.user.id
-          : null,
-      newCustomer:
-        resolvedCustomer.kind === "new"
-          ? {
-              name: resolvedCustomer.name,
-              phone: resolvedCustomer.phone,
-              email: resolvedCustomer.email,
-            }
-          : undefined,
-      customerSnapshot: { name: customerName || "customer", phone },
-      items: cart,
-      subtotal,
-      discount: discountAmount,
-      total,
-      paymentMethod,
-      channel,
-      notes:
-        channel === "whatsapp" && whatsappNote.trim()
-          ? whatsappNote.trim()
-          : undefined,
-    });
-
-    if (channel === "whatsapp" && whatsappNote.trim()) {
-      console.log("[orders] WhatsApp conversation note", {
-        orderId: order.id,
-        note: whatsappNote.trim(),
-      });
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `pos-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
 
-    setCompletedSale({
-      orderId: order.id,
-      orderNumber,
-      customerId,
-      customerName: customerName || "customer",
-      customerPhone: phone,
-      items: cart,
-      subtotal,
-      discount: discountAmount,
-      total,
-      paymentMethod,
-      completedAt: new Date().toISOString(),
-      channel,
-    });
+    setSubmitting(true);
+    try {
+      const storeId = await resolveStoreId();
+      // cash/card: mark paid explicitly. cliq: backend marks delivered+paid from
+      // paymentMethod alone (do not send markPaid). other: pending unless markPaid.
+      const markPaid =
+        paymentMethod === "cash" || paymentMethod === "card"
+          ? true
+          : paymentMethod === "other"
+            ? false
+            : undefined;
 
-    // Brief, ambient confirmation only — the confirmation screen below is
-    // the primary source of truth, so don't duplicate its content here.
-    toast.success(`Order #${orderNumber}`);
+      const order = await orderService.createChannelOrder(
+        {
+          storeId,
+          channel,
+          ...(resolvedCustomer.kind === "existing"
+            ? { customerId: resolvedCustomer.user.id }
+            : {
+                newCustomer: {
+                  name: resolvedCustomer.name,
+                  phone: resolvedCustomer.phone,
+                  email: resolvedCustomer.email || undefined,
+                },
+              }),
+          items: cart.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+          })),
+          paymentMethod,
+          ...(markPaid !== undefined ? { markPaid } : {}),
+          discountAmount: discountAmount > 0 ? discountAmount : 0,
+          discountCode: null,
+          notes:
+            channel === "whatsapp" && whatsappNote.trim()
+              ? whatsappNote.trim()
+              : undefined,
+        },
+        idempotencyKeyRef.current,
+      );
+
+      const customerId =
+        order.customer?.id ||
+        order.userId ||
+        (resolvedCustomer.kind === "existing"
+          ? resolvedCustomer.user.id
+          : "");
+
+      setCompletedSale({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerId: customerId || "",
+        customerName: customerName || "customer",
+        customerPhone: phone,
+        items: cart,
+        subtotal,
+        discount: discountAmount,
+        total: parseFloat(String(order.totalAmount)) || total,
+        paymentMethod,
+        completedAt: order.createdAt || new Date().toISOString(),
+        channel,
+      });
+
+      idempotencyKeyRef.current = null;
+      toast.success(`Order #${order.orderNumber}`);
+    } catch (error: any) {
+      const raw = error.message || "Failed to create order";
+      toast.error(formatChannelOrderError(raw, cart));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const startNewSale = () => {
     setCompletedSale(null);
+    idempotencyKeyRef.current = null;
     resetFlow();
   };
 
@@ -390,44 +540,92 @@ export function ChannelOrderForm({
               onChange={resetCustomer}
             />
           ) : (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1 relative">
-                  <Phone
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    size={18}
-                  />
-                  <Input
-                    autoFocus
-                    placeholder="Phone number, e.g. 0791234567"
-                    className="pl-10"
-                    value={phoneQuery}
-                    onChange={(e) => setPhoneQuery(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleLookup()}
-                  />
-                </div>
-                <Button
-                  onClick={handleLookup}
-                  disabled={!phoneQuery.trim() || isLookingUp}
-                  className="sm:w-auto w-full"
-                >
-                  {isLookingUp ? "Looking up..." : "Look up"}
-                </Button>
+            <div className="space-y-5">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold tracking-tight">
+                  Find customer
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Search by phone or email, then continue with products.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Searches registered customers by phone number. Unknown numbers
-                can be added as new customers.
-              </p>
+
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="customer-phone-lookup"
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  Phone
+                </Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <PhoneInput
+                    id="customer-phone-lookup"
+                    autoFocus
+                    value={phoneValue}
+                    onChange={setPhoneValue}
+                    onEnter={handleLookup}
+                    placeholder="7XXXXXXXX"
+                    className="min-w-0 flex-1"
+                  />
+                  <Button
+                    onClick={handleLookup}
+                    disabled={!canLookup || isLookingUp}
+                    className="w-full sm:w-auto shrink-0 h-9 min-w-[7.5rem]"
+                  >
+                    {isLookingUp ? "Looking up…" : "Look up"}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground tabular-nums">
+                  Looks up as{" "}
+                  <span className="font-medium text-foreground/80">
+                    {canLookupPhone
+                      ? fullPhoneQuery
+                      : `${phoneValue.dial}…`}
+                  </span>
+                </p>
+              </div>
+
+              <div className="relative flex items-center gap-3 py-0.5">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  or
+                </span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="customer-email-lookup"
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  Email
+                </Label>
+                <Input
+                  id="customer-email-lookup"
+                  type="email"
+                  className="h-9"
+                  placeholder="name@example.com"
+                  value={emailQuery}
+                  onChange={(e) => setEmailQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleLookup()}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Optional — use if phone isn&apos;t on file. Press Enter to look
+                  up.
+                </p>
+              </div>
 
               {lookupAttempted && !resolvedCustomer && (
                 <div className="rounded-lg border border-border p-4 space-y-3">
                   <p className="text-sm font-medium">
-                    No customer found for that number — create one to
-                    continue.
+                    No customer found — create one to continue.
                   </p>
                   <NewCustomerForm
-                    initialPhone={phoneQuery.trim()}
+                    initialPhone={
+                      canLookupPhone ? fullPhoneQuery : undefined
+                    }
                     onSubmit={handleNewCustomerSubmit}
+                    onExistingCustomer={handleUseExistingCustomer}
                     submitLabel="Use this customer"
                   />
                 </div>
@@ -475,54 +673,68 @@ export function ChannelOrderForm({
                   {cart.map((line) => (
                     <div
                       key={line.productId}
-                      className="space-y-2 border-b border-border pb-3 last:border-0 last:pb-0"
+                      className="flex gap-3 border-b border-border pb-3 last:border-0 last:pb-0"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium leading-snug">
-                          {line.name}
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => removeFromCart(line.productId)}
-                          className="text-muted-foreground hover:text-destructive shrink-0 -mt-1 -mr-1"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
+                      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-muted">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={line.imageUrl || "/placeholder.svg"}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
                       </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium leading-snug line-clamp-2">
+                            {line.name}
+                          </p>
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="icon-sm"
-                            onClick={() =>
-                              updateCartQuantity(
-                                line.productId,
-                                line.quantity - 1
-                              )
-                            }
+                            onClick={() => removeFromCart(line.productId)}
+                            className="text-muted-foreground hover:text-destructive shrink-0 -mt-1 -mr-1"
                           >
-                            <Minus size={14} />
-                          </Button>
-                          <span className="w-6 text-center text-sm">
-                            {line.quantity}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="icon-sm"
-                            onClick={() =>
-                              updateCartQuantity(
-                                line.productId,
-                                line.quantity + 1
-                              )
-                            }
-                          >
-                            <Plus size={14} />
+                            <Trash2 size={14} />
                           </Button>
                         </div>
-                        <p className="text-sm font-semibold">
-                          JOD {(line.unitPrice * line.quantity).toFixed(2)}
-                        </p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              onClick={() =>
+                                updateCartQuantity(
+                                  line.productId,
+                                  line.quantity - 1
+                                )
+                              }
+                            >
+                              <Minus size={14} />
+                            </Button>
+                            <span className="w-6 text-center text-sm">
+                              {line.quantity}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              disabled={
+                                line.stockQuantity != null &&
+                                line.quantity >= line.stockQuantity
+                              }
+                              onClick={() =>
+                                updateCartQuantity(
+                                  line.productId,
+                                  line.quantity + 1
+                                )
+                              }
+                            >
+                              <Plus size={14} />
+                            </Button>
+                          </div>
+                          <p className="text-sm font-semibold">
+                            JOD {(line.unitPrice * line.quantity).toFixed(2)}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -530,28 +742,90 @@ export function ChannelOrderForm({
               )}
 
               <div className="space-y-2 pt-2 border-t border-border">
-                <div className="space-y-1">
-                  <Label
-                    htmlFor="discount"
-                    className="text-xs text-muted-foreground"
-                  >
-                    Manual discount (JOD)
-                  </Label>
-                  <Input
-                    id="discount"
-                    type="number"
-                    min={0}
-                    max={subtotal || undefined}
-                    placeholder="0.00"
-                    value={discount}
-                    onChange={(e) => setDiscount(e.target.value)}
-                    disabled={cart.length === 0}
-                    aria-invalid={discountExceedsSubtotal}
-                  />
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label
+                      htmlFor="discount"
+                      className="text-xs text-muted-foreground"
+                    >
+                      Discount
+                    </Label>
+                    <div className="inline-flex h-7 items-center rounded-md border border-border bg-muted/40 p-0.5">
+                      <button
+                        type="button"
+                        className={cn(
+                          "rounded px-2 h-6 text-[11px] font-medium transition-colors",
+                          discountMode === "amount"
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                        onClick={() => {
+                          setDiscountMode("amount");
+                          setDiscount("");
+                        }}
+                        disabled={cart.length === 0}
+                      >
+                        JOD
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "rounded px-2 h-6 text-[11px] font-medium transition-colors",
+                          discountMode === "percent"
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                        onClick={() => {
+                          setDiscountMode("percent");
+                          setDiscount("");
+                        }}
+                        disabled={cart.length === 0}
+                      >
+                        %
+                      </button>
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="discount"
+                      type="number"
+                      min={0}
+                      max={
+                        discountMode === "percent"
+                          ? 100
+                          : subtotal || undefined
+                      }
+                      step={discountMode === "percent" ? "1" : "0.01"}
+                      placeholder={
+                        discountMode === "percent" ? "0" : "0.00"
+                      }
+                      value={discount}
+                      onChange={(e) => setDiscount(e.target.value)}
+                      disabled={cart.length === 0}
+                      className="pr-10"
+                      aria-invalid={
+                        discountExceedsSubtotal || discountPercentInvalid
+                      }
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {discountMode === "percent" ? "%" : "JOD"}
+                    </span>
+                  </div>
                   {discountExceedsSubtotal && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
-                      Discount can't exceed the subtotal — capped at JOD{" "}
+                      Discount can&apos;t exceed the subtotal — capped at JOD{" "}
                       {subtotal.toFixed(2)}.
+                    </p>
+                  )}
+                  {discountPercentInvalid && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Percent discount can&apos;t exceed 100%.
+                    </p>
+                  )}
+                  {discountMode === "percent" && discountAmount > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {Math.min(rawDiscountInput, 100)}% = JOD{" "}
+                      {discountAmount.toFixed(2)}
                     </p>
                   )}
                 </div>
@@ -561,7 +835,12 @@ export function ChannelOrderForm({
                 </div>
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>Discount</span>
+                    <span>
+                      Discount
+                      {discountMode === "percent"
+                        ? ` (${Math.min(rawDiscountInput, 100)}%)`
+                        : ""}
+                    </span>
                     <span>- JOD {discountAmount.toFixed(2)}</span>
                   </div>
                 )}
@@ -598,7 +877,7 @@ export function ChannelOrderForm({
               <CardTitle className="text-base">Payment method</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {paymentOptions.map((option) => (
                   <Button
                     key={option.value}
@@ -622,11 +901,11 @@ export function ChannelOrderForm({
 
           <Button
             size="lg"
-            className="w-full"
-            disabled={!canComplete}
+            className="w-full sticky bottom-3 z-10 shadow-lg lg:static lg:shadow-none"
+            disabled={!canComplete || submitting}
             onClick={handleCompleteSale}
           >
-            {copy.completeLabel}
+            {submitting ? "Submitting…" : copy.completeLabel}
           </Button>
           {!canComplete && (
             <p className="text-xs text-muted-foreground text-center">
@@ -655,7 +934,7 @@ function SaleConfirmation({
   onStartNewSale: () => void;
 }) {
   const channelLabel =
-    sale.channel === "whatsapp" ? "WhatsApp" : "Offline (In-Store)";
+    sale.channel === "whatsapp" ? "WhatsApp" : "In-Store";
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 py-6 pb-16">
@@ -699,9 +978,17 @@ function SaleConfirmation({
             {sale.items.map((line) => (
               <div
                 key={line.productId}
-                className="flex items-start justify-between gap-3 text-sm"
+                className="flex items-start gap-3 text-sm"
               >
-                <div className="min-w-0">
+                <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={line.imageUrl || "/placeholder.svg"}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
                   <p className="font-medium leading-snug">{line.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {line.quantity} × JOD {line.unitPrice.toFixed(2)}
@@ -761,8 +1048,7 @@ function SaleConfirmation({
           Print receipt
         </Button>
         <p className="text-xs text-muted-foreground">
-          Recorded locally for this session — the order-creation API isn't
-          available yet, so this sale is not persisted to the backend.
+          Sale recorded on the server. Open the order for full details.
         </p>
       </div>
     </div>
@@ -782,15 +1068,17 @@ function ResolvedCustomerSummary({
       : resolved.name;
   const phone =
     resolved.kind === "existing" ? userPhone(resolved.user) : resolved.phone;
-  // Map the backend user model onto the in-store status concept: a verified
-  // account reads "Active"; an unverified one reads "Invited". A locally
-  // created customer is "Unclaimed" until the backend supports creating them.
   const status =
     resolved.kind === "existing"
-      ? resolved.user.emailVerified
-        ? "active"
-        : "invited"
+      ? resolved.user.accountStatus ||
+        (resolved.user.emailVerified || resolved.user.isEmailVerified
+          ? "active"
+          : "invited")
       : "unclaimed";
+  const email =
+    resolved.kind === "existing"
+      ? displayCustomerEmail(resolved.user.email)
+      : resolved.email || null;
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
@@ -802,17 +1090,16 @@ function ResolvedCustomerSummary({
           <span className="font-medium text-sm truncate">{name}</span>
           <span className="text-muted-foreground text-sm">{phone}</span>
           <AccountStatusBadge status={status} />
-          {/* BACKEND GAP: channel badges + total order count need per-customer
-              aggregates (channels, order count) from the API. */}
-          {resolved.kind === "existing" ? (
-            resolved.user.email && (
-              <span className="text-xs text-muted-foreground truncate">
-                {resolved.user.email}
-              </span>
-            )
-          ) : (
-            <span className="text-xs text-muted-foreground">First order</span>
+          {resolved.kind === "existing" && resolved.user.totalOrders != null && (
+            <span className="text-xs text-muted-foreground">
+              {resolved.user.totalOrders} orders
+            </span>
           )}
+          {email ? (
+            <span className="text-xs text-muted-foreground truncate">{email}</span>
+          ) : resolved.kind === "new" ? (
+            <span className="text-xs text-muted-foreground">First order</span>
+          ) : null}
         </div>
       </div>
       <Button variant="ghost" size="sm" onClick={onChange} className="shrink-0">

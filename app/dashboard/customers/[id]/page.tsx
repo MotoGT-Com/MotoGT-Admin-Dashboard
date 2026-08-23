@@ -1,120 +1,144 @@
 "use client";
 
-/**
- * Customer profile — backed by the real Users API (GET /admin/users/:id).
- *
- * Falls back to the session-local mock store for customers created during an
- * in-store sale this session (the backend can't create customers yet).
- *
- * BACKEND GAPS surfaced here (see the in-store backend guide):
- * - Channels ("Purchased through") needs per-customer channel aggregates.
- * - "My Garage" needs a saved-vehicles API for customers.
- * - Order history needs GET /admin/orders filtered by customer id.
- */
-
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { ArrowLeft, Mail, Phone, Send, Loader2 } from "lucide-react";
+import { LoadingState } from "@/components/loading-state";
+import { toast } from "sonner";
 import { userService, type User } from "@/lib/services/user.service";
+import { orderService, type Order } from "@/lib/services/order.service";
 import {
-  mockCustomers,
-  getOrdersForCustomer,
-  type MockOrderRecord,
-} from "@/lib/mock-data/in-store";
-import { AccountStatusBadge, ChannelBadge } from "@/components/in-store/badges";
+  AccountStatusBadge,
+  ChannelBadge,
+  ChannelBadgeList,
+} from "@/components/in-store/badges";
+import {
+  displayCustomerEmail,
+  isPlaceholderEmail,
+} from "@/lib/customers/email";
+import type { AccountStatus } from "@/lib/domain/channels";
+import { formatMoney, parseAmount } from "@/lib/dashboard-utils";
+import { resolveStoreId } from "@/lib/stores/resolve-store-id";
 
 interface ProfileData {
+  id: string;
   name: string;
   phone: string;
   email: string | null;
+  rawEmail: string | null;
   memberSince: string;
-  status: "active" | "unclaimed" | "invited";
-  /** Session-local orders (in-store sales completed this session). */
-  localOrders: MockOrderRecord[];
+  status: AccountStatus;
+  channels: string[];
+  totalOrders: number;
 }
 
-export default function InStoreCustomerProfilePage() {
+function resolveAccountStatus(user: User): AccountStatus {
+  if (user.accountStatus) return user.accountStatus;
+  return user.emailVerified || user.isEmailVerified ? "active" : "invited";
+}
+
+function paymentLabel(order: Order): string {
+  const type = order.paymentMethod?.type;
+  if (!type) return "—";
+  return type
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+export default function CustomerProfilePage() {
   const router = useRouter();
   const params = useParams();
   const customerId = params.id as string;
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setIsLoading(true);
-      setLoadError(null);
-
-      // Session-local customer (created during an in-store sale)?
-      const mock = mockCustomers.find((c) => c.id === customerId);
-      if (mock) {
-        setProfile({
-          name: mock.name,
-          phone: mock.phone,
-          email: mock.email ?? null,
-          memberSince: mock.memberSince,
-          status: mock.status,
-          localOrders: getOrdersForCustomer(mock.id),
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const user: User = await userService.getUserById(customerId);
-        if (cancelled) return;
-        setProfile({
-          name:
-            [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-            user.email,
-          phone: user.phoneNumber || user.phone || "—",
-          email: user.email,
-          memberSince: user.createdAt,
-          // Verified accounts read "Active"; unverified read "Invited".
-          status: user.emailVerified ? "active" : "invited",
-          localOrders: getOrdersForCustomer(user.id),
-        });
-      } catch (error: any) {
-        if (!cancelled) {
-          setLoadError(error.message || "Customer not found");
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
+  const loadProfile = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const user = await userService.getUserById(customerId);
+      setProfile({
+        id: user.id,
+        name:
+          [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+          displayCustomerEmail(user.email) ||
+          "Customer",
+        phone: user.phoneNumber || user.phone || "—",
+        email: displayCustomerEmail(user.email),
+        rawEmail: user.email ?? null,
+        memberSince: user.createdAt,
+        status: resolveAccountStatus(user),
+        channels: (user.channels ?? []) as string[],
+        totalOrders: user.totalOrders ?? 0,
+      });
+    } catch (error: any) {
+      setLoadError(error.message || "Customer not found");
+      setProfile(null);
+    } finally {
+      setIsLoading(false);
+    }
   }, [customerId]);
 
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const storeId = await resolveStoreId();
+      const result = await orderService.getOrders({
+        storeId,
+        customerId,
+        page: 1,
+        limit: 50,
+        sortBy: "createdAt",
+        sortOrder: "desc",
+      });
+      setOrders(result.items);
+    } catch {
+      setOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [customerId]);
+
+  useEffect(() => {
+    loadProfile();
+    loadOrders();
+  }, [loadProfile, loadOrders]);
+
+  const handleResendInvite = async () => {
+    if (!profile?.rawEmail || isPlaceholderEmail(profile.rawEmail)) {
+      toast.error("Add a real email before sending an invite");
+      return;
+    }
+    setResending(true);
+    try {
+      await userService.resendInvite(customerId);
+      toast.success("Invite sent");
+      loadProfile();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to resend invite");
+    } finally {
+      setResending(false);
+    }
+  };
+
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px] gap-2 text-muted-foreground">
-        <Loader2 size={18} className="animate-spin" />
-        Loading customer...
-      </div>
-    );
+    return <LoadingState variant="full" label="Loading customer…" />;
   }
 
   if (loadError || !profile) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-3">
-          <p className="text-muted-foreground">
-            {loadError || "Customer not found"}
-          </p>
+          <p className="text-muted-foreground">{loadError || "Customer not found"}</p>
           <Button variant="outline" onClick={() => router.back()}>
             Go back
           </Button>
@@ -123,19 +147,19 @@ export default function InStoreCustomerProfilePage() {
     );
   }
 
-  const showResendActivation = profile.status !== "active";
+  const canInvite =
+    Boolean(profile.email) && profile.status !== "active";
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={() => router.back()}>
             <ArrowLeft size={20} />
           </Button>
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold text-foreground">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground min-w-0 break-words">
                 {profile.name}
               </h1>
               <AccountStatusBadge status={profile.status} />
@@ -143,31 +167,31 @@ export default function InStoreCustomerProfilePage() {
             <p className="text-muted-foreground mt-1">
               Customer since{" "}
               {new Date(profile.memberSince).toLocaleDateString()}
+              {" · "}
+              {profile.totalOrders} order
+              {profile.totalOrders === 1 ? "" : "s"}
             </p>
           </div>
         </div>
 
-        {showResendActivation && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button variant="outline" disabled className="gap-2 opacity-60">
-                    <Send size={16} />
-                    Resend activation link
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                Needs a backend endpoint for sending activation links.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        {canInvite && (
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={resending}
+            onClick={handleResendInvite}
+          >
+            {resending ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Send size={16} />
+            )}
+            Resend invite
+          </Button>
         )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Contact info */}
         <Card>
           <CardHeader>
             <CardTitle>Contact information</CardTitle>
@@ -190,99 +214,106 @@ export default function InStoreCustomerProfilePage() {
               </div>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground mb-1">
+              <p className="text-sm text-muted-foreground mb-2">
                 Purchased through
               </p>
-              <p className="text-sm text-muted-foreground">
-                Pending backend — needs per-customer channel data.
-              </p>
+              <ChannelBadgeList channels={profile.channels} />
             </div>
           </CardContent>
         </Card>
 
-        {/* My Garage */}
         <Card>
           <CardHeader>
             <CardTitle>My Garage</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground py-4">
-              Pending backend — needs a saved-vehicles API for customers.
+              Saved vehicles will appear here once garage APIs ship (P2).
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Order history */}
       <Card>
         <CardHeader>
           <CardTitle>Order history</CardTitle>
         </CardHeader>
         <CardContent className="px-0">
-          {profile.localOrders.length === 0 ? (
+          {ordersLoading ? (
+            <LoadingState label="Loading orders…" className="py-6" />
+          ) : orders.length === 0 ? (
             <p className="text-sm text-muted-foreground px-6 py-6">
-              No orders to show. Full history is pending backend — the orders
-              API can&apos;t filter by customer yet. In-store sales completed
-              this session appear here.
+              No orders yet for this customer.
             </p>
           ) : (
-            <>
-              <p className="text-xs text-muted-foreground px-6 pb-3">
-                Showing in-store sales from this session only — full
-                cross-channel history is pending backend support.
-              </p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="text-left py-3 px-6 font-semibold">
-                        Order #
-                      </th>
-                      <th className="text-left py-3 px-6 font-semibold">
-                        Channel
-                      </th>
-                      <th className="text-left py-3 px-6 font-semibold">
-                        Items
-                      </th>
-                      <th className="text-left py-3 px-6 font-semibold">
-                        Total
-                      </th>
-                      <th className="text-left py-3 px-6 font-semibold">
-                        Payment
-                      </th>
-                      <th className="text-left py-3 px-6 font-semibold">
-                        Date
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profile.localOrders.map((order) => (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="text-left py-3 px-6 font-semibold">
+                      Order #
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold">
+                      Channel
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold">Items</th>
+                    <th className="text-left py-3 px-6 font-semibold">Total</th>
+                    <th className="text-left py-3 px-6 font-semibold">
+                      Payment
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map((order) => {
+                    const channel =
+                      (order.channel || order.orderType || "online") as string;
+                    const itemCount =
+                      order.itemCount ??
+                      order.lineItems?.reduce(
+                        (sum, line) => sum + (line.quantity || 0),
+                        0,
+                      ) ??
+                      0;
+                    return (
                       <tr
                         key={order.id}
-                        className="border-b border-border hover:bg-primary/5 transition"
+                        className="border-b border-border hover:bg-primary/5 transition cursor-pointer"
+                        onClick={() =>
+                          router.push(`/dashboard/orders/${order.id}`)
+                        }
                       >
                         <td className="py-3 px-6 font-medium">
-                          {order.orderNumber}
+                          <Link
+                            href={`/dashboard/orders/${order.id}`}
+                            className="hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {order.orderNumber}
+                          </Link>
                         </td>
                         <td className="py-3 px-6">
-                          <ChannelBadge channel={order.channel} />
+                          <ChannelBadge channel={channel} />
                         </td>
-                        <td className="py-3 px-6">{order.itemCount}</td>
+                        <td className="py-3 px-6">{itemCount}</td>
                         <td className="py-3 px-6 font-semibold">
-                          {order.currency} {order.total.toFixed(2)}
+                          {formatMoney(
+                            parseAmount(order.totalAmount),
+                            order.currency || "JOD",
+                          )}
                         </td>
                         <td className="py-3 px-6 text-muted-foreground">
-                          {order.paymentMethod}
+                          {paymentLabel(order)}
                         </td>
                         <td className="py-3 px-6 text-muted-foreground">
                           {new Date(order.createdAt).toLocaleDateString()}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>

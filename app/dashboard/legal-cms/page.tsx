@@ -151,11 +151,11 @@ For questions about these Terms, contact us at support@motogt.com`)
         <CardContent>
           <Tabs defaultValue="privacy" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="privacy" className="gap-2">
+              <TabsTrigger value="privacy" className="w-full gap-2">
                 <Shield size={16} />
                 Privacy Policy
               </TabsTrigger>
-              <TabsTrigger value="terms" className="gap-2">
+              <TabsTrigger value="terms" className="w-full gap-2">
                 <ScrollText size={16} />
                 Terms & Conditions
               </TabsTrigger>

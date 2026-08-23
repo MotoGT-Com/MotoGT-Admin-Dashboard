@@ -6,7 +6,7 @@
 
 export type Channel = "online" | "whatsapp" | "in_store";
 export type AccountStatus = "active" | "unclaimed" | "invited";
-export type PaymentMethod = "cash" | "card" | "other";
+export type PaymentMethod = "cash" | "card" | "cliq" | "other";
 
 export interface MockVehicle {
   make: string;
@@ -361,6 +361,7 @@ export interface CompletedSaleInput {
 const paymentMethodLabels: Record<PaymentMethod, string> = {
   cash: "Cash",
   card: "Card",
+  cliq: "Cliq",
   other: "Other",
 };
 

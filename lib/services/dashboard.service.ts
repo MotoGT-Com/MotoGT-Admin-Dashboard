@@ -1,10 +1,12 @@
 import { apiClient } from '../api-client';
 import { getApiErrorMessage } from '../api-errors';
 import { resolveDashboardDateRange } from '../dashboard-utils';
+import type { OrderChannel } from '../domain/channels';
 import { orderService, type Order } from './order.service';
 
 /** Preset windows for GET /admin/dashboard (plus custom via from/to). */
 export type DashboardPeriod =
+  | 'today'
   | '7d'
   | '14d'
   | '30d'
@@ -12,8 +14,10 @@ export type DashboardPeriod =
   | '180d'
   | 'custom';
 
+export type DashboardChannelFilter = 'all' | OrderChannel;
+
 /** Periods the production API accepted before extended-range support. */
-const LEGACY_PERIODS = new Set<DashboardPeriod>(['7d', '30d']);
+const LEGACY_PERIODS = new Set<DashboardPeriod>(['7d', '30d', 'today']);
 
 export interface DashboardKpis {
   revenue: number;
@@ -56,6 +60,8 @@ export interface DashboardTopProduct {
   units: number;
   revenue: number;
   mainImage: string | null;
+  /** Fitment label, e.g. "BMW 3 Series (2019-2024)". */
+  car?: string | null;
 }
 
 export interface DashboardLowStockItem {
@@ -68,9 +74,26 @@ export interface DashboardLowStockItem {
 export interface DashboardCategorySale {
   categoryId?: string;
   name: string;
+  units?: number;
   revenue: number;
-  /** Share of total category sales (0–100). */
-  percentage: number;
+  /** Share of total category sales (0–100) — may be computed client-side. */
+  percentage?: number;
+}
+
+export interface DashboardLeaderboardItem {
+  id: string;
+  name: string;
+  value: string | number;
+  secondaryValue?: string | number;
+}
+
+export interface DashboardLeaderboards {
+  productsByUnits?: DashboardLeaderboardItem[];
+  categoriesByOrderCount?: DashboardLeaderboardItem[];
+  subcategoriesByUnits?: DashboardLeaderboardItem[];
+  subcategoriesByRevenue?: DashboardLeaderboardItem[];
+  locationsByOrderCount?: DashboardLeaderboardItem[];
+  carMakesModels?: DashboardLeaderboardItem[];
 }
 
 export interface DashboardData {
@@ -80,6 +103,7 @@ export interface DashboardData {
     from: string;
     to: string;
   };
+  channel?: DashboardChannelFilter | string;
   currencyCode: string;
   lowStockThreshold: number;
   newCustomersScope: 'platform';
@@ -89,8 +113,8 @@ export interface DashboardData {
   attentionOrders: DashboardAttentionOrder[];
   topProducts: DashboardTopProduct[];
   lowStock: DashboardLowStockItem[];
-  /** Present when the API returns category aggregates; otherwise UI may mock. */
   categorySales?: DashboardCategorySale[];
+  leaderboards?: DashboardLeaderboards;
 }
 
 export interface GetDashboardParams {
@@ -100,6 +124,7 @@ export interface GetDashboardParams {
   from?: string;
   /** Inclusive end date (YYYY-MM-DD). Required when period is `custom`. */
   to?: string;
+  channel?: DashboardChannelFilter;
 }
 
 function isInvalidInputError(error: unknown): boolean {
@@ -135,14 +160,40 @@ function inclusiveDaySpan(from: string, to: string): number {
   return Math.max(1, Math.round((end - start) / 86400000) + 1);
 }
 
+function normalizeTopProduct(raw: DashboardTopProduct & Record<string, unknown>): DashboardTopProduct {
+  const carBrand =
+    typeof raw.carBrand === 'string' ? raw.carBrand : undefined;
+  const carModel =
+    typeof raw.carModel === 'string' ? raw.carModel : undefined;
+  const carFromApi =
+    typeof raw.car === 'string'
+      ? raw.car
+      : typeof raw.carInfo === 'string'
+        ? raw.carInfo
+        : carBrand || carModel
+          ? [carBrand, carModel].filter(Boolean).join(' ')
+          : null;
+
+  const title =
+    (typeof raw.title === 'string' && raw.title) ||
+    (typeof raw.productName === 'string' && raw.productName) ||
+    raw.name;
+
+  return {
+    productId: raw.productId,
+    name: title || raw.itemCode || raw.productId,
+    itemCode: raw.itemCode || '',
+    units: Number(raw.units) || 0,
+    revenue: Number(raw.revenue) || 0,
+    mainImage: raw.mainImage ?? null,
+    car: carFromApi,
+  };
+}
+
 class DashboardService {
   /**
    * GET /admin/dashboard
    * Store-scoped ops KPIs, charts, and attention lists for the admin home.
-   *
-   * Extended periods (14d / 90d / 180d / custom) are sent to the API when
-   * supported. Against older backends that only accept 7d/30d, we fall back to
-   * aggregating from GET /admin/orders so the UI still works.
    */
   async getDashboard(params: GetDashboardParams): Promise<DashboardData> {
     const period = params.period ?? '7d';
@@ -157,6 +208,7 @@ class DashboardService {
         period,
         from: range.from,
         to: range.to,
+        channel: params.channel,
       });
     } catch (error) {
       // Legacy production enum is today|7d|30d — retry via order aggregation.
@@ -166,6 +218,7 @@ class DashboardService {
           period,
           from: range.from,
           to: range.to,
+          channel: params.channel,
         });
       }
       throw new Error(getApiErrorMessage(error, 'Failed to load dashboard'));
@@ -177,14 +230,19 @@ class DashboardService {
     period: DashboardPeriod;
     from: string;
     to: string;
+    channel?: DashboardChannelFilter;
   }): Promise<DashboardData> {
     const query: Record<string, string> = {
       storeId: params.storeId,
       period: params.period,
     };
 
-    // Custom always needs bounds. Extended presets also send bounds so
-    // backends that prefer from/to can use them.
+    if (params.channel && params.channel !== 'all') {
+      query.channel = params.channel;
+    } else if (params.channel === 'all') {
+      query.channel = 'all';
+    }
+
     if (
       params.period === 'custom' ||
       params.period === '14d' ||
@@ -207,25 +265,25 @@ class DashboardService {
       );
     }
 
-    return data;
+    return {
+      ...data,
+      topProducts: (data.topProducts ?? []).map(normalizeTopProduct),
+    };
   }
 
-  /**
-   * Fallback for APIs that reject extended period keys: pull a 30d dashboard
-   * shell (currency, stock, attention) and recompute period KPIs/charts from
-   * the orders list.
-   */
   private async buildFromOrdersFallback(params: {
     storeId: string;
     period: DashboardPeriod;
     from: string;
     to: string;
+    channel?: DashboardChannelFilter;
   }): Promise<DashboardData> {
     const shell = await this.fetchFromApi({
       storeId: params.storeId,
       period: '30d',
       from: shiftIsoDate(params.to, -29),
       to: params.to,
+      channel: params.channel,
     });
 
     const spanDays = inclusiveDaySpan(params.from, params.to);
@@ -233,8 +291,18 @@ class DashboardService {
     const previousFrom = shiftIsoDate(previousTo, -(spanDays - 1));
 
     const [currentOrders, previousOrders] = await Promise.all([
-      this.collectOrdersInRange(params.storeId, params.from, params.to),
-      this.collectOrdersInRange(params.storeId, previousFrom, previousTo),
+      this.collectOrdersInRange(
+        params.storeId,
+        params.from,
+        params.to,
+        params.channel,
+      ),
+      this.collectOrdersInRange(
+        params.storeId,
+        previousFrom,
+        previousTo,
+        params.channel,
+      ),
     ]);
 
     const currentActive = currentOrders.filter((o) => !isCancelled(o));
@@ -280,10 +348,8 @@ class DashboardService {
         revenuePrevious,
         orders: currentActive.length,
         ordersPrevious: previousActive.length,
-        // Keep live queue counts from the shell (not period-scoped).
         pendingOrders: shell.kpis.pendingOrders,
         processingOrders: shell.kpis.processingOrders,
-        // Users aren't date-filterable on the legacy path — avoid fake deltas.
         newCustomers: shell.kpis.newCustomers,
         newCustomersPrevious: shell.kpis.newCustomersPrevious,
       },
@@ -297,12 +363,12 @@ class DashboardService {
     storeId: string,
     from: string,
     to: string,
+    channel?: DashboardChannelFilter,
   ): Promise<Order[]> {
     const matched: Order[] = [];
     let page = 1;
     const limit = 100;
 
-    // Walk newest → oldest; stop once every remaining order is before `from`.
     while (page <= 40) {
       const response = await orderService.getOrders({
         storeId,
@@ -310,6 +376,7 @@ class DashboardService {
         limit,
         sortBy: 'createdAt',
         sortOrder: 'desc',
+        channel: channel && channel !== 'all' ? channel : undefined,
       });
 
       if (!response.items.length) break;

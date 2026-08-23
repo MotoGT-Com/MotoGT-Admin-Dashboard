@@ -40,7 +40,11 @@ export function StepIndicator({
   };
 
   return (
-    <div className="flex items-center" role="list" aria-label="Sale progress">
+    <div
+      className="flex items-center overflow-x-auto max-w-full pb-1 -mx-1 px-1 scrollbar-thin"
+      role="list"
+      aria-label="Sale progress"
+    >
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const state = resolveState(stepNumber);
@@ -51,14 +55,14 @@ export function StepIndicator({
           <div
             key={label}
             role="listitem"
-            className={cn("flex items-center", !isLast && "flex-1")}
+            className={cn("flex items-center shrink-0", !isLast && "flex-1 min-w-0")}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <div
                 title={
                   state === "met"
                     ? "Requirement met — you can still make changes"
-                    : undefined
+                    : label
                 }
                 className={cn(
                   "flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold shrink-0 transition-colors",
@@ -68,7 +72,7 @@ export function StepIndicator({
                       ? "bg-primary/15 text-primary border border-primary/40"
                       : state === "active"
                         ? "border-2 border-primary text-primary"
-                        : "border border-border text-muted-foreground"
+                        : "border border-border text-muted-foreground",
                 )}
               >
                 {showCheck ? <Check size={14} /> : stepNumber}
@@ -78,17 +82,20 @@ export function StepIndicator({
                   "text-sm font-medium whitespace-nowrap",
                   state === "upcoming"
                     ? "text-muted-foreground"
-                    : "text-foreground"
+                    : "text-foreground",
                 )}
               >
-                Step {stepNumber} · {label}
+                <span className="sm:hidden">{label}</span>
+                <span className="hidden sm:inline">
+                  Step {stepNumber} · {label}
+                </span>
               </span>
             </div>
             {!isLast && (
               <div
                 className={cn(
-                  "h-px mx-3 flex-1 min-w-6 transition-colors",
-                  showCheck ? "bg-primary" : "bg-border"
+                  "h-px mx-2 sm:mx-3 flex-1 min-w-4 sm:min-w-6 transition-colors",
+                  showCheck ? "bg-primary" : "bg-border",
                 )}
               />
             )}

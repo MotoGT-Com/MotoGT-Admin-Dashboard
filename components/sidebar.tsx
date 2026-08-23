@@ -7,6 +7,13 @@ import { useState } from "react";
 import { useSidebar } from "./sidebar-context";
 import { useMockRole } from "@/lib/context/mock-role-context";
 import {
+  ADMIN_SETTINGS_HREF,
+  STORE_STAFF_HREFS,
+  canAccessAdminSettings,
+  canAccessComingSoonPages,
+  isComingSoonHref,
+} from "@/lib/domain/admin-roles";
+import {
   LayoutDashboard,
   ShoppingCart,
   Layers,
@@ -23,8 +30,11 @@ import {
   FileText,
   Settings,
   Zap,
+  Globe,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { STOREFRONT_BASE_URL } from "@/lib/products/catalog-helpers";
 
 interface NavGroup {
   label: string;
@@ -57,7 +67,7 @@ const navigationGroups: NavGroup[] = [
         label: "Customers",
         href: "/dashboard/customers",
       },
-      { icon: <Users size={20} />, label: "Users", href: "/dashboard/users" },
+      { icon: <Users size={20} />, label: "Online users", href: "/dashboard/users" },
     ],
   },
   {
@@ -109,6 +119,11 @@ const navigationGroups: NavGroup[] = [
         label: "CMS",
         href: "/dashboard/cms",
       },
+      {
+        icon: <Mail size={20} />,
+        label: "Newsletter",
+        href: "/dashboard/newsletter",
+      },
     ],
   },
   {
@@ -117,17 +132,11 @@ const navigationGroups: NavGroup[] = [
       {
         icon: <Settings size={20} />,
         label: "Admin Settings",
-        href: "/dashboard/admin-settings",
+        href: ADMIN_SETTINGS_HREF,
       },
     ],
   },
 ];
-
-const STORE_STAFF_HREFS = new Set([
-  "/dashboard",
-  "/dashboard/orders",
-  "/dashboard/customers",
-]);
 
 export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -140,16 +149,25 @@ export function Sidebar() {
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
-  // store_staff: Operations counter tools only (Dashboard, Orders, Customers).
-  const visibleGroups =
-    role === "store_staff"
-      ? navigationGroups
-          .filter((group) => group.label === "Operations")
-          .map((group) => ({
-            ...group,
-            items: group.items.filter((item) => STORE_STAFF_HREFS.has(item.href)),
-          }))
-      : navigationGroups;
+  // Role-scoped nav: store_staff = counter tools; admin = all except Admin Settings;
+  // super_admin = everything.
+  const visibleGroups = navigationGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        if (item.href === ADMIN_SETTINGS_HREF) {
+          return canAccessAdminSettings(role);
+        }
+        if (isComingSoonHref(item.href)) {
+          return canAccessComingSoonPages(role);
+        }
+        if (role === "store_staff") {
+          return STORE_STAFF_HREFS.has(item.href);
+        }
+        return true;
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -157,7 +175,7 @@ export function Sidebar() {
       <Button
         variant="ghost"
         size="icon"
-        className="md:hidden fixed top-4 left-4 z-40"
+        className="md:hidden fixed top-3.5 left-3 z-40 h-9 w-9"
         onClick={() => setIsOpen(!isOpen)}
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
@@ -175,38 +193,79 @@ export function Sidebar() {
           <div
             className={`border-b border-sidebar-border flex ${
               isCollapsed
-                ? "items-center justify-center p-4"
-                : "flex-col items-start px-5 py-4"
+                ? "flex-col items-center justify-center gap-2 p-4"
+                : "flex-col items-stretch px-5 py-4"
             }`}
           >
-            {/* The wordmark's "MOTO" letters are white in the primary asset
-                (for dark backgrounds) and black in the -black variant, so
-                each theme gets the readable one. */}
-            <Image
-              src="/motogt-logo-black.svg"
-              alt="MotoGT"
-              width={646}
-              height={94}
-              priority
-              className={`dark:hidden ${
-                isCollapsed
-                  ? "h-6 w-6 object-contain object-left"
-                  : "h-6 w-auto max-w-full"
+            <div
+              className={`flex w-full items-center ${
+                isCollapsed ? "justify-center" : "justify-between gap-2"
               }`}
-            />
-            <Image
-              src="/motogt-logo.svg"
-              alt="MotoGT"
-              width={646}
-              height={94}
-              priority
-              className={`hidden dark:block ${
-                isCollapsed
-                  ? "h-6 w-6 object-contain object-left"
-                  : "h-6 w-auto max-w-full"
-              }`}
-            />
-            {!isCollapsed && (
+            >
+              {/* The wordmark's "MOTO" letters are white in the primary asset
+                  (for dark backgrounds) and black in the -black variant, so
+                  each theme gets the readable one. */}
+              <Image
+                src="/motogt-logo-black.svg"
+                alt="MotoGT"
+                width={646}
+                height={94}
+                priority
+                className={`dark:hidden ${
+                  isCollapsed
+                    ? "h-6 w-6 object-contain object-left"
+                    : "h-6 w-auto max-w-[calc(100%-2.5rem)]"
+                }`}
+              />
+              <Image
+                src="/motogt-logo.svg"
+                alt="MotoGT"
+                width={646}
+                height={94}
+                priority
+                className={`hidden dark:block ${
+                  isCollapsed
+                    ? "h-6 w-6 object-contain object-left"
+                    : "h-6 w-auto max-w-[calc(100%-2.5rem)]"
+                }`}
+              />
+              {!isCollapsed && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  asChild
+                >
+                  <a
+                    href={STOREFRONT_BASE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open MotoGT website"
+                    title="Open MotoGT website"
+                  >
+                    <Globe size={16} />
+                  </a>
+                </Button>
+              )}
+            </div>
+            {isCollapsed ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                asChild
+              >
+                <a
+                  href={STOREFRONT_BASE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open MotoGT website"
+                  title="Open MotoGT website"
+                >
+                  <Globe size={16} />
+                </a>
+              </Button>
+            ) : (
               <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-[0.2em] mt-1.5">
                 Admin Panel
               </p>
@@ -253,7 +312,7 @@ export function Sidebar() {
       {/* Overlay for mobile */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-20 md:hidden"
+          className="fixed inset-0 bg-black/50 z-[25] md:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}

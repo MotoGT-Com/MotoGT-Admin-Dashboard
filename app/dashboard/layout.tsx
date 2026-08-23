@@ -20,8 +20,8 @@ export default function DashboardLayout({
               <Sidebar />
               <div className="flex-1 flex flex-col transition-all duration-300" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
                 <Header />
-                <main className="flex-1 overflow-auto pt-16">
-                  <div className="p-6">{children}</div>
+                <main className="flex-1 overflow-auto pt-16 pb-24 sm:pb-6 safe-area-pb">
+                  <div className="p-4 md:p-6">{children}</div>
                 </main>
               </div>
               <NewOrderFab />

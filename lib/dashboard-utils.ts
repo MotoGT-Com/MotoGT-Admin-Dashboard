@@ -1,6 +1,7 @@
 import type { DashboardPeriod } from './services/dashboard.service';
 
 const PRESET_DAYS: Record<Exclude<DashboardPeriod, 'custom'>, number> = {
+  today: 1,
   '7d': 7,
   '14d': 14,
   '30d': 30,
@@ -38,16 +39,28 @@ export function resolveDashboardDateRange(
   return { from: toIsoDate(fromDate), to };
 }
 
-export function formatMoney(amount: number, currencyCode: string): string {
+/** Coerce API amounts that may arrive as strings ("10.00") to numbers. */
+export function parseAmount(value: string | number | null | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (value == null || value === '') return 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function formatMoney(
+  amount: string | number,
+  currencyCode: string,
+): string {
+  const n = parseAmount(amount);
   try {
     return new Intl.NumberFormat('en-JO', {
       style: 'currency',
       currency: currencyCode || 'JOD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 3,
-    }).format(amount);
+    }).format(n);
   } catch {
-    return `${currencyCode} ${amount.toFixed(2)}`;
+    return `${currencyCode} ${n.toFixed(2)}`;
   }
 }
 
@@ -77,6 +90,8 @@ export function periodLabel(
   range?: { from?: string; to?: string },
 ): string {
   switch (period) {
+    case 'today':
+      return 'Today';
     case '7d':
       return 'Last 7 days';
     case '14d':

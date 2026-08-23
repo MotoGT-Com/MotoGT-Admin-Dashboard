@@ -3,13 +3,14 @@ import { CHANNEL_LABELS } from "@/lib/in-store/mock-data";
 
 /**
  * Channel pill (Online / WhatsApp / In-Store).
- * Follows the same pill pattern as OrderTypeBadge on the Orders page,
- * with colors deliberately distinct from the blue/violet order-type pills.
+ * Light + dark friendly tones, distinct from order-type blues/violets.
  */
 const CHANNEL_CLASSES: Record<Channel, string> = {
-  online: "bg-teal-900/30 text-teal-200",
-  whatsapp: "bg-emerald-900/30 text-emerald-200",
-  in_store: "bg-amber-900/30 text-amber-200",
+  online: "bg-sky-500/15 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300",
+  whatsapp:
+    "bg-teal-500/15 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300",
+  in_store:
+    "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
 };
 
 export function ChannelBadge({ channel }: { channel: Channel }) {

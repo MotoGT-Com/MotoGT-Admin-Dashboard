@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Percent,
   SlidersHorizontal,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,19 +44,23 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { OrderQuickViewSheet } from "@/components/orders/order-quick-view-sheet";
+import { NewOrderButton } from "@/components/orders/new-order-button";
 import { formatMoney } from "@/lib/dashboard-utils";
+import { orderService } from "@/lib/services/order.service";
+import { settingsService } from "@/lib/services/settings.service";
 import {
-  MOCK_LIST_ORDERS,
-  MOCK_ORDER_CITIES,
+  mapOrderToListRow,
   channelLabel,
-  daysOpen,
-  type MockListOrder,
-  type OrderChannel,
-  type OrderKind,
-} from "@/lib/mock-data/orders-list";
+  type ListOrderRow,
+} from "@/lib/orders/list-row";
+import { resolveStoreId } from "@/lib/stores/resolve-store-id";
+import type { OrderChannel, OrderKind } from "@/lib/domain/channels";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/loading-state";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const SEARCH_DEBOUNCE_MS = 350;
+const TERMINAL_STATUSES = new Set(["delivered", "cancelled", "refunded"]);
 
 type SortKey = "createdAt" | "totalAmount";
 type ChannelFilter = "all" | OrderChannel;
@@ -93,6 +98,9 @@ const paymentMethodOptions = [
   { value: "cod", label: "Cash On Delivery" },
   { value: "cliq", label: "Cliq" },
   { value: "card_on_delivery", label: "Card On Delivery" },
+  { value: "cash", label: "Cash" },
+  { value: "card", label: "Card" },
+  { value: "other", label: "Other" },
 ];
 
 type PresetId = "today_in_store" | "pending_online" | "needs_attention";
@@ -150,16 +158,23 @@ const PRESETS: {
   },
 ];
 
+/** Days since created for pending/processing attention chips. */
+function daysOpen(createdAt: string, status: string): number | null {
+  if (TERMINAL_STATUSES.has(status)) return null;
+  const ms = Date.now() - new Date(createdAt).getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
+}
+
 function OrderTypeBadge({ orderType }: { orderType: OrderKind }) {
   if (orderType === "user") {
     return (
-      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-blue-900/30 px-3 py-1 text-xs font-medium text-blue-200">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-blue-500/15 px-3 py-1 text-xs font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
         User order
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center whitespace-nowrap rounded-full bg-violet-900/30 px-3 py-1 text-xs font-medium text-violet-200">
+    <span className="inline-flex items-center whitespace-nowrap rounded-full bg-violet-500/15 px-3 py-1 text-xs font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
       Guest order
     </span>
   );
@@ -168,10 +183,10 @@ function OrderTypeBadge({ orderType }: { orderType: OrderKind }) {
 function ChannelBadge({ channel }: { channel: OrderChannel }) {
   const styles =
     channel === "in_store"
-      ? "bg-emerald-900/30 text-emerald-200"
+      ? "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
       : channel === "whatsapp"
-        ? "bg-teal-900/30 text-teal-200"
-        : "bg-sky-900/30 text-sky-200";
+        ? "bg-teal-500/15 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300"
+        : "bg-sky-500/15 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300";
   return (
     <span
       className={cn(
@@ -214,42 +229,42 @@ function SortableHeader({
 function getStatusColor(status: string) {
   switch (status.toLowerCase()) {
     case "pending":
-      return "bg-yellow-900/30 text-yellow-300";
+      return "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300";
     case "confirmed":
-      return "bg-blue-900/30 text-blue-300";
+      return "bg-blue-500/15 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300";
     case "processing":
-      return "bg-purple-900/30 text-purple-300";
+      return "bg-violet-500/15 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300";
     case "shipped":
-      return "bg-orange-900/30 text-orange-300";
+      return "bg-orange-500/15 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300";
     case "delivered":
-      return "bg-green-900/30 text-green-300";
+      return "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300";
     case "cancelled":
-      return "bg-red-900/30 text-red-300";
+      return "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-300";
     case "refunded":
-      return "bg-red-950/50 text-red-400";
+      return "bg-rose-500/15 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300";
     default:
-      return "bg-gray-900/30 text-gray-300";
+      return "bg-muted text-muted-foreground";
   }
 }
 
 function getPaymentColor(status: string) {
   switch (status?.toLowerCase()) {
     case "captured":
-      return "bg-green-900/30 text-green-300";
+      return "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300";
     case "pending":
-      return "bg-yellow-900/30 text-yellow-300";
+      return "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300";
     case "failed":
-      return "bg-red-900/30 text-red-300";
+      return "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-300";
     case "refunded":
-      return "bg-orange-900/30 text-orange-300";
+      return "bg-orange-500/15 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300";
     case "awaiting":
-      return "bg-amber-900/30 text-amber-200";
+      return "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300";
     default:
-      return "bg-gray-900/30 text-gray-300";
+      return "bg-muted text-muted-foreground";
   }
 }
 
-function paymentStatusDisplay(row: MockListOrder): {
+function paymentStatusDisplay(row: ListOrderRow): {
   label: string;
   tone: string;
 } {
@@ -271,11 +286,7 @@ function paymentStatusDisplay(row: MockListOrder): {
   };
 }
 
-function orderDayKey(iso: string): string {
-  return iso.slice(0, 10);
-}
-
-function exportOrdersCsv(rows: MockListOrder[], filename: string) {
+function exportOrdersCsv(rows: ListOrderRow[], filename: string) {
   const headers = [
     "Order Number",
     "Channel",
@@ -365,13 +376,13 @@ export function AllOrdersContent({
   channel,
   onChannelChange,
 }: AllOrdersContentProps) {
-  const [rows] = useState<MockListOrder[]>(() =>
-    [...MOCK_LIST_ORDERS].sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    )
-  );
+  const [rows, setRows] = useState<ListOrderRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<
     string[]
@@ -391,9 +402,8 @@ export function AllOrdersContent({
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [quickViewOpen, setQuickViewOpen] = useState(false);
-  const [quickViewOrder, setQuickViewOrder] = useState<MockListOrder | null>(
-    null
-  );
+  const [quickViewId, setQuickViewId] = useState<string | null>(null);
+  const [quickViewType, setQuickViewType] = useState<OrderKind>("user");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [visibleColumns, setVisibleColumns] = useState({
@@ -411,10 +421,20 @@ export function AllOrdersContent({
     createdAt: true,
   });
 
+  const fallbackCurrency =
+    settingsService.getSelectedStore()?.currencyCode || "JOD";
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [searchTerm]);
+
   useEffect(() => {
     setPage(1);
   }, [
-    searchTerm,
+    debouncedSearch,
     selectedStatuses,
     selectedPaymentMethods,
     orderTypeFilter,
@@ -427,98 +447,99 @@ export function AllOrdersContent({
     hasDiscount,
     needsAttentionOnly,
     rowsPerPage,
+    sortKey,
+    sortOrder,
   ]);
 
-  const filteredRows = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    const phoneQ = q.replace(/[\s\-()]/g, "");
-    const min = amountMin === "" ? null : Number(amountMin);
-    const max = amountMax === "" ? null : Number(amountMax);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const storeId = await resolveStoreId();
+        const min =
+          amountMin === "" || Number.isNaN(Number(amountMin))
+            ? undefined
+            : Number(amountMin);
+        const max =
+          amountMax === "" || Number.isNaN(Number(amountMax))
+            ? undefined
+            : Number(amountMax);
 
-    let next = rows.filter((row) => {
-      const name = row.customerName.toLowerCase();
-      const email = row.customerEmail.toLowerCase();
-      const phone = row.customerPhone.replace(/[\s\-()]/g, "").toLowerCase();
-      const skuHit = row.lineItems.some(
-        (item) =>
-          item.sku.toLowerCase().includes(q) ||
-          item.name.toLowerCase().includes(q)
-      );
-      const matchesSearch =
-        q === "" ||
-        row.orderNumber.toLowerCase().includes(q) ||
-        email.includes(q) ||
-        name.includes(q) ||
-        (phoneQ.length > 0 && phone.includes(phoneQ)) ||
-        skuHit;
+        // API accepts a single payment_method; when multiple are selected we
+        // pass the first and filter the page client-side below.
+        const paymentParam =
+          selectedPaymentMethods.length === 1
+            ? selectedPaymentMethods[0]
+            : selectedPaymentMethods.length > 1
+              ? selectedPaymentMethods[0]
+              : undefined;
 
-      const matchesStatus =
-        selectedStatuses.length === 0 || selectedStatuses.includes(row.status);
-      const pm = row.paymentMethodType?.toLowerCase() ?? null;
-      const matchesPayment =
-        selectedPaymentMethods.length === 0 ||
-        (pm != null && selectedPaymentMethods.includes(pm));
-      const matchesChannel = channel === "all" || row.channel === channel;
-      const matchesOrderType =
-        orderTypeFilter === "all" || row.orderType === orderTypeFilter;
-      const matchesCity =
-        cityFilter === "all" ||
-        row.city.toLowerCase() === cityFilter.toLowerCase();
+        const response = await orderService.getOrders({
+          storeId,
+          ...(channel !== "all" ? { channel } : {}),
+          ...(orderTypeFilter !== "all"
+            ? { orderType: orderTypeFilter }
+            : {}),
+          ...(debouncedSearch ? { q: debouncedSearch } : {}),
+          ...(selectedStatuses.length > 0
+            ? { status: selectedStatuses.join(",") }
+            : {}),
+          ...(paymentParam ? { payment_method: paymentParam } : {}),
+          ...(cityFilter !== "all" ? { city: cityFilter } : {}),
+          ...(dateFrom ? { from: dateFrom } : {}),
+          ...(dateTo ? { to: dateTo } : {}),
+          ...(min != null ? { amountMin: min } : {}),
+          ...(max != null ? { amountMax: max } : {}),
+          ...(hasDiscount === "yes"
+            ? { hasDiscount: true }
+            : hasDiscount === "no"
+              ? { hasDiscount: false }
+              : {}),
+          ...(needsAttentionOnly ? { needsAttention: true } : {}),
+          sortBy: sortKey ?? "createdAt",
+          sortOrder: sortKey ? sortOrder : "desc",
+          page,
+          limit: rowsPerPage,
+        });
 
-      const day = orderDayKey(row.createdAt);
-      const matchesFrom = !dateFrom || day >= dateFrom;
-      const matchesTo = !dateTo || day <= dateTo;
+        if (cancelled) return;
 
-      const matchesMin = min == null || Number.isNaN(min) || row.totalAmount >= min;
-      const matchesMax = max == null || Number.isNaN(max) || row.totalAmount <= max;
+        let mapped = (response.items || []).map(mapOrderToListRow);
 
-      const matchesDiscount =
-        hasDiscount === "all" ||
-        (hasDiscount === "yes"
-          ? row.discountAmount > 0 || Boolean(row.discountCode)
-          : row.discountAmount <= 0 && !row.discountCode);
+        if (selectedPaymentMethods.length > 1) {
+          mapped = mapped.filter((row) => {
+            const pm = row.paymentMethodType?.toLowerCase() ?? null;
+            return pm != null && selectedPaymentMethods.includes(pm);
+          });
+        }
 
-      const open = daysOpen(row.createdAt, row.status);
-      const matchesAttention =
-        !needsAttentionOnly ||
-        (open != null &&
-          (row.status === "pending" || row.status === "processing"));
-
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesPayment &&
-        matchesChannel &&
-        matchesOrderType &&
-        matchesCity &&
-        matchesFrom &&
-        matchesTo &&
-        matchesMin &&
-        matchesMax &&
-        matchesDiscount &&
-        matchesAttention
-      );
-    });
-
-    const effectiveKey: SortKey = sortKey ?? "createdAt";
-    const effectiveOrder: "asc" | "desc" = sortKey ? sortOrder : "desc";
-
-    next = [...next].sort((a, b) => {
-      const cmp =
-        effectiveKey === "totalAmount"
-          ? a.totalAmount - b.totalAmount
-          : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      return effectiveOrder === "asc" ? cmp : -cmp;
-    });
-
-    return next;
+        setRows(mapped);
+        setTotal(response.total ?? mapped.length);
+      } catch (err) {
+        if (!cancelled) {
+          setRows([]);
+          setTotal(0);
+          setError(
+            err instanceof Error ? err.message : "Failed to load orders"
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [
-    rows,
-    searchTerm,
+    page,
+    rowsPerPage,
+    debouncedSearch,
     selectedStatuses,
     selectedPaymentMethods,
-    channel,
     orderTypeFilter,
+    channel,
     cityFilter,
     dateFrom,
     dateTo,
@@ -530,12 +551,17 @@ export function AllOrdersContent({
     sortOrder,
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage));
+  const cityOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of rows) {
+      if (row.city && row.city !== "—") set.add(row.city);
+    }
+    if (cityFilter !== "all") set.add(cityFilter);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows, cityFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const safePage = Math.min(page, totalPages);
-  const pageSlice = filteredRows.slice(
-    (safePage - 1) * rowsPerPage,
-    safePage * rowsPerPage
-  );
 
   const toggleStatus = (status: string) => {
     setSelectedStatuses((prev) =>
@@ -600,6 +626,12 @@ export function AllOrdersContent({
 
   const toggleColumn = (key: keyof typeof visibleColumns) => {
     setVisibleColumns((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const openQuickView = (row: ListOrderRow) => {
+    setQuickViewId(row.id);
+    setQuickViewType(row.orderType);
+    setQuickViewOpen(true);
   };
 
   const chips: { key: string; label: string; onClear: () => void }[] = [];
@@ -678,16 +710,9 @@ export function AllOrdersContent({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-900 dark:text-amber-200">
-        Preview data — sliced by channel (primary tabs). Guest checkout only
-        appears on Online; In-Store / WhatsApp walk-ins are Users (Unclaimed /
-        Invited) per the data model. City, discount, and SKU search are mock
-        until the API returns them.
-      </p>
-
       {/* Search + actions */}
       <div className="flex flex-wrap gap-3 items-center">
-        <div className="flex-1 min-w-[240px] relative">
+        <div className="relative w-full min-w-0 sm:flex-1 sm:min-w-[240px]">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             size={18}
@@ -736,11 +761,11 @@ export function AllOrdersContent({
           className="gap-2"
           onClick={() =>
             exportOrdersCsv(
-              filteredRows,
+              rows,
               `orders-export-${new Date().toISOString().slice(0, 10)}.csv`
             )
           }
-          disabled={filteredRows.length === 0}
+          disabled={rows.length === 0}
         >
           <Download size={18} />
           Export
@@ -784,6 +809,8 @@ export function AllOrdersContent({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <NewOrderButton variant="toolbar" className="hidden sm:inline-flex" />
       </div>
 
       {chips.length > 0 && (
@@ -812,7 +839,7 @@ export function AllOrdersContent({
           value={orderTypeFilter}
           onValueChange={(v) => setOrderTypeFilter(v as OrderTypeFilter)}
         >
-          <SelectTrigger className="w-[160px]">
+          <SelectTrigger className="w-full sm:w-[160px]">
             <SelectValue placeholder="Order type" />
           </SelectTrigger>
           <SelectContent>
@@ -878,13 +905,13 @@ export function AllOrdersContent({
         </DropdownMenu>
 
         <Select value={cityFilter} onValueChange={setCityFilter}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-full sm:w-[150px]">
             <MapPin size={14} className="mr-1 text-muted-foreground" />
             <SelectValue placeholder="City" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All cities</SelectItem>
-            {MOCK_ORDER_CITIES.map((city) => (
+            {cityOptions.map((city) => (
               <SelectItem key={city} value={city}>
                 {city}
               </SelectItem>
@@ -896,7 +923,7 @@ export function AllOrdersContent({
           value={hasDiscount}
           onValueChange={(v) => setHasDiscount(v as HasDiscountFilter)}
         >
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-full sm:w-[150px]">
             <Percent size={14} className="mr-1 text-muted-foreground" />
             <SelectValue placeholder="Discount" />
           </SelectTrigger>
@@ -928,7 +955,7 @@ export function AllOrdersContent({
               value={dateFrom}
               max={dateTo || undefined}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="w-[150px]"
+              className="w-full sm:w-[150px]"
             />
           </div>
           <div className="space-y-1">
@@ -938,7 +965,7 @@ export function AllOrdersContent({
               value={dateTo}
               min={dateFrom || undefined}
               onChange={(e) => setDateTo(e.target.value)}
-              className="w-[150px]"
+              className="w-full sm:w-[150px]"
             />
           </div>
           <div className="space-y-1">
@@ -968,13 +995,27 @@ export function AllOrdersContent({
         </div>
       )}
 
-      <div className="border border-border rounded-lg overflow-hidden">
-        {pageSlice.length === 0 ? (
+      <div className="border border-border rounded-lg overflow-hidden relative">
+        {loading && rows.length > 0 ? (
+          <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/20">
+            <div className="h-full w-1/3 animate-pulse bg-primary" />
+          </div>
+        ) : null}
+        {loading && rows.length === 0 ? (
+          <LoadingState label="Loading orders…" />
+        ) : error ? (
+          <div className="py-12 text-center text-destructive">{error}</div>
+        ) : rows.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground">
             No orders match the current filters.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className={cn(
+              "overflow-x-auto transition-opacity",
+              loading && "opacity-60 pointer-events-none",
+            )}
+          >
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
@@ -1046,8 +1087,9 @@ export function AllOrdersContent({
                 </tr>
               </thead>
               <tbody>
-                {pageSlice.map((row) => {
+                {rows.map((row) => {
                   const pay = paymentStatusDisplay(row);
+                  const openDays = daysOpen(row.createdAt, row.status);
                   return (
                     <tr
                       key={row.id}
@@ -1058,10 +1100,7 @@ export function AllOrdersContent({
                           <button
                             type="button"
                             className="hover:underline hover:text-primary"
-                            onClick={() => {
-                              setQuickViewOrder(row);
-                              setQuickViewOpen(true);
-                            }}
+                            onClick={() => openQuickView(row)}
                           >
                             {row.orderNumber}
                           </button>
@@ -1085,7 +1124,7 @@ export function AllOrdersContent({
                             </span>
                             {row.accountStatus === "unclaimed" ||
                             row.accountStatus === "invited" ? (
-                              <span className="rounded-full bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-200 capitalize">
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 capitalize dark:bg-amber-500/20 dark:text-amber-300">
                                 {row.accountStatus}
                               </span>
                             ) : null}
@@ -1141,23 +1180,33 @@ export function AllOrdersContent({
                       )}
                       {visibleColumns.status && (
                         <td className="py-3 px-4">
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span
-                                  className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                                    row.status
-                                  )}`}
-                                >
-                                  {row.status.charAt(0).toUpperCase() +
-                                    row.status.slice(1)}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {orderStatusDescriptions[row.status]}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
+                          <div className="flex flex-col gap-1 items-start">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                                      row.status
+                                    )}`}
+                                  >
+                                    {row.status.charAt(0).toUpperCase() +
+                                      row.status.slice(1)}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {orderStatusDescriptions[row.status]}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            {openDays != null &&
+                              (row.status === "pending" ||
+                                row.status === "processing") &&
+                              openDays >= 1 ? (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-300">
+                                Open {openDays}d
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                       )}
                       {visibleColumns.createdAt && (
@@ -1179,17 +1228,20 @@ export function AllOrdersContent({
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => {
-                                setQuickViewOrder(row);
-                                setQuickViewOpen(true);
-                              }}
+                              onClick={() => openQuickView(row)}
                             >
                               <Eye size={16} className="mr-2" />
                               Quick view
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem asChild>
-                              <a href={`/dashboard/orders/${row.id}`}>
+                              <a
+                                href={
+                                  row.orderType === "guest"
+                                    ? `/dashboard/orders/${row.id}?guest=true`
+                                    : `/dashboard/orders/${row.id}`
+                                }
+                              >
                                 Open full details
                               </a>
                             </DropdownMenuItem>
@@ -1205,7 +1257,7 @@ export function AllOrdersContent({
         )}
       </div>
 
-      <div className="flex items-center justify-between px-1 py-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-1 py-2">
         <div className="flex items-center gap-2">
           <select
             className="bg-background border border-border rounded px-3 py-2 text-sm"
@@ -1220,17 +1272,20 @@ export function AllOrdersContent({
           </select>
           <span className="text-sm text-muted-foreground">Rows per page</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <span className="text-sm text-muted-foreground">
-            Page {safePage} of {totalPages} ({filteredRows.length} total orders
-            across {totalPages} pages)
+            Page {safePage} of {totalPages}
+            <span className="hidden sm:inline">
+              {" "}
+              ({total} total orders)
+            </span>
           </span>
           <div className="flex gap-1">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setPage(1)}
-              disabled={safePage === 1}
+              disabled={safePage === 1 || loading}
             >
               «
             </Button>
@@ -1238,7 +1293,7 @@ export function AllOrdersContent({
               variant="outline"
               size="sm"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={safePage === 1}
+              disabled={safePage === 1 || loading}
             >
               ‹
             </Button>
@@ -1249,7 +1304,7 @@ export function AllOrdersContent({
               variant="outline"
               size="sm"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage === totalPages}
+              disabled={safePage === totalPages || loading}
             >
               ›
             </Button>
@@ -1257,7 +1312,7 @@ export function AllOrdersContent({
               variant="outline"
               size="sm"
               onClick={() => setPage(totalPages)}
-              disabled={safePage === totalPages}
+              disabled={safePage === totalPages || loading}
             >
               »
             </Button>
@@ -1268,10 +1323,9 @@ export function AllOrdersContent({
       <OrderQuickViewSheet
         open={quickViewOpen}
         onOpenChange={setQuickViewOpen}
-        orderId={quickViewOrder?.id ?? null}
-        orderType={quickViewOrder?.orderType ?? "user"}
-        fallbackCurrency="JOD"
-        mockOrder={quickViewOrder}
+        orderId={quickViewId}
+        orderType={quickViewType}
+        fallbackCurrency={fallbackCurrency}
       />
     </div>
   );

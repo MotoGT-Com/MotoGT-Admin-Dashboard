@@ -7,13 +7,13 @@ import {
   ArrowUpRight,
   Clock,
   DollarSign,
-  Loader2,
   Package,
   ShoppingCart,
   Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { DashboardKpis } from '@/lib/services/dashboard.service';
 import {
   formatCompactNumber,
@@ -21,6 +21,7 @@ import {
   formatPercentDelta,
   percentDelta,
 } from '@/lib/dashboard-utils';
+import { cn } from '@/lib/utils';
 
 /** Soften / hide % deltas when the sample is too small to be meaningful. */
 const DELTA_MIN_SAMPLE = 20;
@@ -40,16 +41,14 @@ function DeltaLine({
 }: {
   current: number;
   previous: number;
-  /** When set (e.g. order count), used instead of current/previous for the soft threshold. */
   sampleSize?: { current: number; previous: number };
 }) {
   const sampleCurrent = sampleSize?.current ?? current;
   const samplePrevious = sampleSize?.previous ?? previous;
 
-  // Small samples make large % swings look like trends when they're noise.
   if (sampleCurrent < DELTA_MIN_SAMPLE && samplePrevious < DELTA_MIN_SAMPLE) {
     return (
-      <p className="text-xs text-muted-foreground mt-1">
+      <p className="text-xs text-muted-foreground line-clamp-2 leading-snug">
         Too few data points for a reliable trend
       </p>
     );
@@ -58,16 +57,17 @@ function DeltaLine({
   const delta = percentDelta(current, previous);
   const label = formatPercentDelta(delta);
   if (!label || delta === null) {
-    return <div className="h-5 mt-1" />;
+    return null;
   }
   const positive = delta >= 0;
   return (
     <p
-      className={`text-xs flex items-center gap-1 mt-1 ${
+      className={cn(
+        'text-xs flex items-center gap-1 leading-snug',
         positive
           ? 'text-green-600/80 dark:text-green-500/80'
-          : 'text-red-600/80 dark:text-red-500/80'
-      }`}
+          : 'text-red-600/80 dark:text-red-500/80',
+      )}
     >
       {positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
       {label}
@@ -100,46 +100,51 @@ function KpiCard({
 }) {
   const content = (
     <Card
-      className={`min-h-[140px] ${
-        href ? 'cursor-pointer hover:border-primary transition-colors' : ''
-      }`}
+      className={cn(
+        'h-full shadow-none flex flex-col',
+        href && 'hover:border-primary/60 transition-colors',
+      )}
     >
-      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 gap-2">
-        <div className="min-w-0 space-y-1">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 gap-2">
+        <div className="min-w-0 flex items-center gap-2 flex-wrap">
           <CardTitle className="text-sm font-medium leading-none">
             {title}
           </CardTitle>
           {badge}
         </div>
-        <Icon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-1 flex-col justify-between gap-3 pt-0">
         {loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground py-1">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
+          <Skeleton className="h-8 w-24" />
         ) : (
-          <>
-            <div className="text-2xl font-bold">{value}</div>
-            {hint ? (
-              <p className="text-xs text-muted-foreground mt-1">{hint}</p>
-            ) : delta ? (
-              <DeltaLine
-                current={delta.current}
-                previous={delta.previous}
-                sampleSize={delta.sampleSize}
-              />
-            ) : (
-              <div className="h-5 mt-1" />
-            )}
-          </>
+          <div className="text-2xl font-bold tabular-nums tracking-tight leading-none truncate">
+            {value}
+          </div>
         )}
+        <div className="min-h-[2.25rem] flex items-end">
+          {loading ? null : hint ? (
+            <p className="text-xs text-muted-foreground line-clamp-2 leading-snug">
+              {hint}
+            </p>
+          ) : delta ? (
+            <DeltaLine
+              current={delta.current}
+              previous={delta.previous}
+              sampleSize={delta.sampleSize}
+            />
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );
 
   if (href) {
-    return <Link href={href}>{content}</Link>;
+    return (
+      <Link href={href} className="block h-full min-h-0">
+        {content}
+      </Link>
+    );
   }
   return content;
 }
@@ -151,7 +156,7 @@ export function KpiCards({
   newCustomersPlatformScoped,
 }: KpiCardsProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 items-stretch">
       <KpiCard
         title="Total Sales"
         value={formatMoney(kpis.revenue, currencyCode)}
@@ -203,7 +208,7 @@ export function KpiCards({
           newCustomersPlatformScoped ? (
             <Badge
               variant="outline"
-              className="border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-[10px] px-1.5"
+              className="border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-[10px] px-1.5 py-0 h-5 leading-none"
             >
               Platform-wide
             </Badge>

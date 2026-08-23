@@ -1,16 +1,6 @@
 "use client";
 
-// TODO(IA): This page and /dashboard/users both represent "customers" today.
-// This CRM view pulls from GET /admin/users?role=customer. Once the backend
-// unifies channel aggregates (channels, order counts, claim status), consider
-// merging Users + Customers more tightly.
-//
-// BACKEND GAPS surfaced on this page (see the in-store backend guide):
-// - Channel badges per customer (needs per-customer channel aggregates)
-// - Total order count per customer (needs order count in the users list)
-// - "Unclaimed" account status + create-customer + resend-activation APIs
-
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,35 +32,61 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/loading-state";
 import { userService, type User } from "@/lib/services/user.service";
-import { AccountStatusBadge } from "@/components/in-store/badges";
+import {
+  AccountStatusBadge,
+  ChannelBadgeList,
+} from "@/components/in-store/badges";
 import {
   NewCustomerForm,
   type NewCustomerFormValues,
 } from "@/components/in-store/new-customer-form";
+import {
+  displayCustomerEmail,
+  isPlaceholderEmail,
+} from "@/lib/customers/email";
+import type { AccountStatus, OrderChannel } from "@/lib/domain/channels";
+import { resolveStoreId } from "@/lib/stores/resolve-store-id";
 
-type VerifiedFilter = "all" | "verified" | "unverified";
+type ClaimFilter = "all" | AccountStatus;
+type ChannelFilter = "all" | OrderChannel;
 
 const userDisplayName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+  [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+  displayCustomerEmail(user.email) ||
+  "Customer";
 
 const userPhone = (user: User): string =>
   user.phoneNumber || user.phone || "—";
 
-export default function InStoreCustomersPage() {
+function resolveAccountStatus(user: User): AccountStatus {
+  if (user.accountStatus) return user.accountStatus;
+  return user.emailVerified || user.isEmailVerified ? "active" : "invited";
+}
+
+export default function CustomersPage() {
   const router = useRouter();
 
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [storeId, setStoreId] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [verifiedFilter, setVerifiedFilter] = useState<VerifiedFilter>("all");
+  const [claimFilter, setClaimFilter] = useState<ClaimFilter>("all");
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+
+  useEffect(() => {
+    resolveStoreId().then(setStoreId).catch(() => setStoreId(null));
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -81,8 +97,6 @@ export default function InStoreCustomersPage() {
         limit: rowsPerPage,
         q: searchTerm.trim() || undefined,
         role: "customer",
-        emailVerified:
-          verifiedFilter === "all" ? undefined : verifiedFilter === "verified",
         sortBy: "createdAt",
         sortOrder: "desc",
       });
@@ -95,9 +109,8 @@ export default function InStoreCustomersPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, rowsPerPage, searchTerm, verifiedFilter]);
+  }, [currentPage, rowsPerPage, searchTerm]);
 
-  // Debounce so typing in search doesn't fire a request per keystroke.
   useEffect(() => {
     const timer = setTimeout(fetchUsers, 300);
     return () => clearTimeout(timer);
@@ -105,37 +118,81 @@ export default function InStoreCustomersPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, verifiedFilter, rowsPerPage]);
+  }, [searchTerm, claimFilter, channelFilter, rowsPerPage]);
+
+  const visibleUsers = useMemo(() => {
+    return users.filter((user) => {
+      const status = resolveAccountStatus(user);
+      if (claimFilter !== "all" && status !== claimFilter) return false;
+      if (channelFilter !== "all") {
+        const channels = (user.channels ?? []) as string[];
+        if (!channels.includes(channelFilter)) return false;
+      }
+      return true;
+    });
+  }, [users, claimFilter, channelFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const safePage = Math.min(currentPage, totalPages);
 
-  const handleCreateCustomer = (values: NewCustomerFormValues) => {
-    // BACKEND GAP: no admin create-customer endpoint yet.
-    console.log("[in-store] Create customer payload", values);
-    toast.info(
-      "Customer creation isn't available yet — the admin create-customer API is pending."
-    );
-    setIsNewCustomerOpen(false);
+  const handleCreateCustomer = async (values: NewCustomerFormValues) => {
+    setCreating(true);
+    try {
+      const sid = storeId ?? (await resolveStoreId());
+      const created = await userService.createUser({
+        name: values.name,
+        phone: values.phone,
+        email: values.email || undefined,
+        sendInvite: Boolean(values.email),
+        storeId: sid,
+      });
+      toast.success("Customer created");
+      setIsNewCustomerOpen(false);
+      router.push(`/dashboard/customers/${created.id}`);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create customer");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleResendInvite = async (user: User) => {
+    if (isPlaceholderEmail(user.email)) {
+      toast.error("Add a real email before sending an invite");
+      return;
+    }
+    setResendingId(user.id);
+    try {
+      await userService.resendInvite(user.id);
+      toast.success("Invite sent");
+      fetchUsers();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to resend invite");
+    } finally {
+      setResendingId(null);
+    }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Customers</h1>
-          <p className="text-muted-foreground mt-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold">Customers</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             Search registered customers by name, email, or phone.
           </p>
         </div>
-        <Button onClick={() => setIsNewCustomerOpen(true)} className="gap-2">
+        <Button
+          onClick={() => setIsNewCustomerOpen(true)}
+          className="gap-2 w-full sm:w-auto shrink-0"
+        >
           <UserPlus size={18} />
           New customer
         </Button>
       </div>
 
       <div className="flex gap-3 items-center flex-wrap">
-        <div className="flex-1 relative min-w-[220px]">
+        <div className="relative w-full min-w-0 sm:flex-1 sm:min-w-[220px]">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             size={18}
@@ -152,7 +209,7 @@ export default function InStoreCustomersPage() {
             <Button variant="outline" className="gap-2">
               <Filter size={18} />
               Status
-              {verifiedFilter !== "all" && (
+              {claimFilter !== "all" && (
                 <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
                   1
                 </span>
@@ -163,19 +220,20 @@ export default function InStoreCustomersPage() {
             <div className="space-y-3">
               {(
                 [
-                  ["verified", "Active (verified)"],
-                  ["unverified", "Invited (unverified)"],
-                ] as [VerifiedFilter, string][]
+                  ["active", "Active"],
+                  ["unclaimed", "Unclaimed"],
+                  ["invited", "Invited"],
+                ] as [AccountStatus, string][]
               ).map(([value, label]) => (
                 <label
                   key={value}
                   className="flex items-center gap-3 cursor-pointer hover:opacity-80"
                 >
                   <Checkbox
-                    checked={verifiedFilter === value}
+                    checked={claimFilter === value}
                     onCheckedChange={() =>
-                      setVerifiedFilter((prev) =>
-                        prev === value ? "all" : value
+                      setClaimFilter((prev) =>
+                        prev === value ? "all" : value,
                       )
                     }
                   />
@@ -185,32 +243,55 @@ export default function InStoreCustomersPage() {
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
-        {/* BACKEND GAP: the Channel filter (Online / WhatsApp / In-Store)
-            needs per-customer channel data from the API. */}
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Button variant="outline" className="gap-2" disabled>
-                  <Filter size={18} />
-                  Channel
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              Channel filtering requires per-customer channel data from the
-              backend.
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="gap-2">
+              <Filter size={18} />
+              Channel
+              {channelFilter !== "all" && (
+                <span className="ml-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+                  1
+                </span>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56 p-4">
+            <div className="space-y-3">
+              {(
+                [
+                  ["online", "Online"],
+                  ["whatsapp", "WhatsApp"],
+                  ["in_store", "In-Store"],
+                ] as [OrderChannel, string][]
+              ).map(([value, label]) => (
+                <label
+                  key={value}
+                  className="flex items-center gap-3 cursor-pointer hover:opacity-80"
+                >
+                  <Checkbox
+                    checked={channelFilter === value}
+                    onCheckedChange={() =>
+                      setChannelFilter((prev) =>
+                        prev === value ? "all" : value,
+                      )
+                    }
+                  />
+                  <span className="text-sm">{label}</span>
+                </label>
+              ))}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      <div className="border border-border rounded-lg overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-            <Loader2 size={18} className="animate-spin" />
-            Loading customers...
+      <div className="border border-border rounded-lg overflow-x-auto relative">
+        {isLoading && users.length > 0 ? (
+          <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/20">
+            <div className="h-full w-1/3 animate-pulse bg-primary" />
           </div>
+        ) : null}
+        {isLoading && users.length === 0 ? (
+          <LoadingState label="Loading customers…" />
         ) : loadError ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center space-y-3">
@@ -220,7 +301,7 @@ export default function InStoreCustomersPage() {
               </Button>
             </div>
           </div>
-        ) : users.length === 0 ? (
+        ) : visibleUsers.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <p className="text-lg font-semibold text-foreground mb-2">
@@ -234,15 +315,17 @@ export default function InStoreCustomersPage() {
             </div>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table
+            className={`w-full text-sm transition-opacity ${
+              isLoading ? "opacity-60 pointer-events-none" : ""
+            }`}
+          >
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left py-4 px-6 font-semibold">Name</th>
                 <th className="text-left py-4 px-6 font-semibold">Phone</th>
                 <th className="text-left py-4 px-6 font-semibold">Email</th>
-                <th className="text-left py-4 px-6 font-semibold">
-                  Channels
-                </th>
+                <th className="text-left py-4 px-6 font-semibold">Channels</th>
                 <th className="text-left py-4 px-6 font-semibold">Orders</th>
                 <th className="text-left py-4 px-6 font-semibold">Status</th>
                 <th className="text-right py-4 px-6 font-semibold">
@@ -251,8 +334,11 @@ export default function InStoreCustomersPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => {
-                const needsActivation = !user.emailVerified;
+              {visibleUsers.map((user) => {
+                const status = resolveAccountStatus(user);
+                const email = displayCustomerEmail(user.email);
+                const canInvite =
+                  Boolean(email) && status !== "active";
                 return (
                   <tr
                     key={user.id}
@@ -268,37 +354,43 @@ export default function InStoreCustomersPage() {
                       {userPhone(user)}
                     </td>
                     <td className="py-4 px-6 text-muted-foreground">
-                      {user.email}
+                      {email ?? "—"}
                     </td>
-                    {/* BACKEND GAP: channels + order count per customer. */}
-                    <td className="py-4 px-6 text-muted-foreground">—</td>
-                    <td className="py-4 px-6 text-muted-foreground">—</td>
                     <td className="py-4 px-6">
-                      <AccountStatusBadge
-                        status={user.emailVerified ? "active" : "invited"}
-                      />
+                      <ChannelBadgeList channels={user.channels ?? []} />
+                    </td>
+                    <td className="py-4 px-6 text-muted-foreground">
+                      {user.totalOrders ?? 0}
+                    </td>
+                    <td className="py-4 px-6">
+                      <AccountStatusBadge status={status} />
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center justify-end gap-1">
-                        {needsActivation && (
+                        {canInvite && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span onClick={(e) => e.stopPropagation()}>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    disabled
-                                    className="opacity-60 text-muted-foreground"
-                                    aria-label={`Resend activation link to ${userDisplayName(user)}`}
-                                  >
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  disabled={resendingId === user.id}
+                                  className="text-muted-foreground"
+                                  aria-label={`Resend invite to ${userDisplayName(user)}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleResendInvite(user);
+                                  }}
+                                >
+                                  {resendingId === user.id ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
                                     <Send size={14} />
-                                  </Button>
-                                </span>
+                                  )}
+                                </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                Activation sending isn&apos;t wired up yet —
-                                needs a backend endpoint.
+                                Resend activation invite
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -327,9 +419,7 @@ export default function InStoreCustomersPage() {
               <option value={25}>25</option>
               <option value={50}>50</option>
             </select>
-            <span className="text-sm text-muted-foreground">
-              Rows per page
-            </span>
+            <span className="text-sm text-muted-foreground">Rows per page</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">
@@ -387,14 +477,21 @@ export default function InStoreCustomersPage() {
           <DialogHeader>
             <DialogTitle>New customer</DialogTitle>
             <DialogDescription>
-              Create a customer record for a walk-in sale or manual entry.
+              Create a walk-in customer (no email) or invite them with an email.
             </DialogDescription>
           </DialogHeader>
-          <NewCustomerForm
-            onSubmit={handleCreateCustomer}
-            onCancel={() => setIsNewCustomerOpen(false)}
-            submitLabel="Create customer"
-          />
+          {creating ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+              <Loader2 size={18} className="animate-spin" />
+              Creating customer...
+            </div>
+          ) : (
+            <NewCustomerForm
+              onSubmit={handleCreateCustomer}
+              onCancel={() => setIsNewCustomerOpen(false)}
+              submitLabel="Create customer"
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

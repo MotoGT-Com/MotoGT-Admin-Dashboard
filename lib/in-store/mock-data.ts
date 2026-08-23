@@ -5,7 +5,7 @@
 
 export type Channel = "online" | "whatsapp" | "in_store";
 export type CustomerStatus = "active" | "unclaimed" | "invited";
-export type InStorePaymentMethod = "cash" | "card" | "other";
+export type InStorePaymentMethod = "cash" | "card" | "cliq" | "other";
 
 export interface MockCustomer {
   id: string;

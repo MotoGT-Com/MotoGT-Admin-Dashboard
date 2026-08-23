@@ -156,8 +156,12 @@ export function AddCategoryDialog({
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="parent">Create Parent</TabsTrigger>
-            <TabsTrigger value="subcategory">Add Subcategory</TabsTrigger>
+            <TabsTrigger value="parent" className="w-full">
+              Create Parent
+            </TabsTrigger>
+            <TabsTrigger value="subcategory" className="w-full">
+              Add Subcategory
+            </TabsTrigger>
           </TabsList>
 
           {/* Create Parent Category Tab */}

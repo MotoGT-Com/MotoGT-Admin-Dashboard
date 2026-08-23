@@ -1,4 +1,9 @@
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import axios, {
+  AxiosInstance,
+  AxiosError,
+  AxiosRequestConfig,
+  InternalAxiosRequestConfig,
+} from 'axios';
 import { config } from './config';
 import { getApiErrorMessage, isNetworkError } from './api-errors';
 
@@ -158,38 +163,58 @@ class ApiClient {
   }
 
   // HTTP methods
-  public get<T = any>(url: string, params?: any) {
-    return this.client.get<ApiResponse<T>>(url, { params });
+  public get<T = any>(url: string, params?: any, requestConfig?: AxiosRequestConfig) {
+    return this.client.get<ApiResponse<T>>(url, { ...requestConfig, params });
   }
 
-  public post<T = any>(url: string, data?: any) {
+  public post<T = any>(url: string, data?: any, requestConfig?: AxiosRequestConfig) {
     // If data is FormData, we need to let the browser set the Content-Type with boundary
-    const config = data instanceof FormData ? {
+    const formConfig: AxiosRequestConfig | undefined =
+      data instanceof FormData
+        ? {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          }
+        : undefined;
+
+    return this.client.post<ApiResponse<T>>(url, data, {
+      ...formConfig,
+      ...requestConfig,
       headers: {
-        'Content-Type': 'multipart/form-data',
-      }
-    } : undefined;
-    
-    return this.client.post<ApiResponse<T>>(url, data, config);
+        ...formConfig?.headers,
+        ...requestConfig?.headers,
+      },
+    });
   }
 
-  public put<T = any>(url: string, data?: any) {
+  public put<T = any>(url: string, data?: any, requestConfig?: AxiosRequestConfig) {
     // If data is FormData, we need to let the browser set the Content-Type with boundary
-    const config = data instanceof FormData ? {
+    const formConfig: AxiosRequestConfig | undefined =
+      data instanceof FormData
+        ? {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          }
+        : undefined;
+
+    return this.client.put<ApiResponse<T>>(url, data, {
+      ...formConfig,
+      ...requestConfig,
       headers: {
-        'Content-Type': 'multipart/form-data',
-      }
-    } : undefined;
-    
-    return this.client.put<ApiResponse<T>>(url, data, config);
+        ...formConfig?.headers,
+        ...requestConfig?.headers,
+      },
+    });
   }
 
-  public patch<T = any>(url: string, data?: any) {
-    return this.client.patch<ApiResponse<T>>(url, data);
+  public patch<T = any>(url: string, data?: any, requestConfig?: AxiosRequestConfig) {
+    return this.client.patch<ApiResponse<T>>(url, data, requestConfig);
   }
 
-  public delete<T = any>(url: string, data?: any) {
-    return this.client.delete<ApiResponse<T>>(url, { data });
+  public delete<T = any>(url: string, data?: any, requestConfig?: AxiosRequestConfig) {
+    return this.client.delete<ApiResponse<T>>(url, { ...requestConfig, data });
   }
 }
 

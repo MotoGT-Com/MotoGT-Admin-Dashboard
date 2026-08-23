@@ -22,6 +22,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { LoadingState } from "@/components/loading-state";
 import OrdersLoading from "./loading";
 import {
   orderService,
@@ -96,6 +97,12 @@ function getPaymentMethodLabel(type: string | null | undefined) {
       return "Cliq";
     case "card_on_delivery":
       return "Card On Delivery";
+    case "cash":
+      return "Cash";
+    case "card":
+      return "Card";
+    case "other":
+      return "Other";
     default:
       return type;
   }
@@ -104,36 +111,36 @@ function getPaymentMethodLabel(type: string | null | undefined) {
 function getStatusColor(status: string) {
   switch (status.toLowerCase()) {
     case "pending":
-      return "bg-yellow-900/30 text-yellow-300";
+      return "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300";
     case "confirmed":
-      return "bg-blue-900/30 text-blue-300";
+      return "bg-blue-500/15 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300";
     case "processing":
-      return "bg-purple-900/30 text-purple-300";
+      return "bg-violet-500/15 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300";
     case "shipped":
-      return "bg-orange-900/30 text-orange-300";
+      return "bg-orange-500/15 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300";
     case "delivered":
-      return "bg-green-900/30 text-green-300";
+      return "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300";
     case "cancelled":
-      return "bg-red-900/30 text-red-300";
+      return "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-300";
     case "refunded":
-      return "bg-red-950/50 text-red-400";
+      return "bg-rose-500/15 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300";
     default:
-      return "bg-gray-900/30 text-gray-300";
+      return "bg-muted text-muted-foreground";
   }
 }
 
 function getPaymentColor(status: string) {
   switch (status?.toLowerCase()) {
     case "captured":
-      return "bg-green-900/30 text-green-300";
+      return "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300";
     case "pending":
-      return "bg-yellow-900/30 text-yellow-300";
+      return "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300";
     case "failed":
-      return "bg-red-900/30 text-red-300";
+      return "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-300";
     case "refunded":
-      return "bg-orange-900/30 text-orange-300";
+      return "bg-orange-500/15 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300";
     default:
-      return "bg-gray-900/30 text-gray-300";
+      return "bg-muted text-muted-foreground";
   }
 }
 
@@ -141,13 +148,13 @@ type OrderKind = "user" | "guest";
 function OrderTypeBadge({ orderType }: { orderType: OrderKind }) {
   if (orderType === "user") {
     return (
-      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-blue-900/30 px-3 py-1 text-xs font-medium text-blue-200">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-blue-500/15 px-3 py-1 text-xs font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
         User order
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center whitespace-nowrap rounded-full bg-violet-900/30 px-3 py-1 text-xs font-medium text-violet-200">
+    <span className="inline-flex items-center whitespace-nowrap rounded-full bg-violet-500/15 px-3 py-1 text-xs font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
       Guest order
     </span>
   );
@@ -329,6 +336,9 @@ function OrdersContent() {
     "cod",
     "cliq",
     "card_on_delivery",
+    "cash",
+    "card",
+    "other",
   ];
 
   const toggleStatus = (status: string) => {
@@ -614,11 +624,14 @@ function OrdersContent() {
         </DropdownMenu>
       </div>
 
-      <div className="border border-border rounded-lg overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="border border-border rounded-lg overflow-hidden relative">
+        {isLoading && orders.length > 0 ? (
+          <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/20">
+            <div className="h-full w-1/3 animate-pulse bg-primary" />
           </div>
+        ) : null}
+        {isLoading && orders.length === 0 ? (
+          <LoadingState label="Loading orders…" />
         ) : filteredOrders.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -638,7 +651,11 @@ function OrdersContent() {
             </div>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table
+            className={`w-full text-sm transition-opacity ${
+              isLoading ? "opacity-60 pointer-events-none" : ""
+            }`}
+          >
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 {visibleColumns.orderNumber && (
@@ -1011,11 +1028,14 @@ function GuestOrdersContent() {
         </div>
       )}
 
-      <div className="border border-border rounded-lg overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="border border-border rounded-lg overflow-hidden relative">
+        {isLoading && guestOrders.length > 0 ? (
+          <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/20">
+            <div className="h-full w-1/3 animate-pulse bg-primary" />
           </div>
+        ) : null}
+        {isLoading && guestOrders.length === 0 ? (
+          <LoadingState label="Loading guest orders…" />
         ) : guestOrders.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -1026,7 +1046,11 @@ function GuestOrdersContent() {
             </div>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table
+            className={`w-full text-sm transition-opacity ${
+              isLoading ? "opacity-60 pointer-events-none" : ""
+            }`}
+          >
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left py-4 px-6 font-semibold">Order #</th>
@@ -1153,7 +1177,7 @@ function ChannelOrdersPage() {
           setChannelTab(v as "all" | "online" | "in_store" | "whatsapp")
         }
       >
-        <TabsList>
+        <TabsList className="h-auto w-full max-w-full flex-wrap justify-start sm:w-fit">
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="online">Online</TabsTrigger>
           <TabsTrigger value="in_store">In-Store</TabsTrigger>

@@ -62,6 +62,7 @@ import {
   ArrowDown,
   FileDown,
 } from "lucide-react";
+import { LoadingState } from "@/components/loading-state";
 import {
   Tooltip,
   TooltipContent,
@@ -1982,23 +1983,19 @@ export default function ProductsPage() {
 
   if (storesLoading || !selectedStore || !selectedLanguage) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-          <p className="mt-2 text-muted-foreground">
-            {storesLoading ? "Loading stores..." : "Initializing..."}
-          </p>
-        </div>
-      </div>
+      <LoadingState
+        variant="full"
+        label={storesLoading ? "Loading stores…" : "Initializing…"}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold">Products</h1>
-          <p className="text-muted-foreground mt-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold">Products</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             Manage your automotive accessories inventory
           </p>
         </div>
@@ -2219,10 +2216,11 @@ export default function ProductsPage() {
             >
               <SelectTrigger className="w-full">
                 {loadingFilterTrims ? (
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading trims...
-                  </span>
+                  <LoadingState
+                    variant="compact"
+                    label="Loading trims…"
+                    className="text-muted-foreground"
+                  />
                 ) : (
                   <SelectValue
                     placeholder={
@@ -2377,7 +2375,9 @@ export default function ProductsPage() {
           )}
         </CardHeader>
         <CardContent>
-          {products.length === 0 ? (
+          {loading && products.length === 0 ? (
+            <LoadingState label="Loading products…" />
+          ) : products.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="rounded-full bg-muted p-6 mb-4">
                 <Search className="h-12 w-12 text-muted-foreground" />
@@ -2419,7 +2419,11 @@ export default function ProductsPage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div
+              className={`overflow-x-auto transition-opacity ${
+                loading ? "opacity-60 pointer-events-none" : ""
+              }`}
+            >
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">

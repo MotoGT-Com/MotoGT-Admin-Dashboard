@@ -87,8 +87,8 @@ export function CategorySalesBreakdown({
           <div className="space-y-5">
             {categories.map((category) => {
               const pct =
-                category.percentage > 0
-                  ? category.percentage
+                (category.percentage ?? 0) > 0
+                  ? (category.percentage as number)
                   : total > 0
                     ? (category.revenue / total) * 100
                     : 0;

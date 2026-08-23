@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { AccountStatus, Channel } from "@/lib/mock-data/in-store";
+import type { AccountStatus, OrderChannel } from "@/lib/domain/channels";
 
 const statusConfig: Record<AccountStatus, { label: string; className: string }> = {
   active: {
@@ -20,7 +20,7 @@ const statusConfig: Record<AccountStatus, { label: string; className: string }> 
 };
 
 export function AccountStatusBadge({ status }: { status: AccountStatus }) {
-  const config = statusConfig[status];
+  const config = statusConfig[status] ?? statusConfig.unclaimed;
   return (
     <Badge variant="outline" className={config.className}>
       {config.label}
@@ -28,7 +28,7 @@ export function AccountStatusBadge({ status }: { status: AccountStatus }) {
   );
 }
 
-const channelConfig: Record<Channel, { label: string; className: string }> = {
+const channelConfig: Record<OrderChannel, { label: string; className: string }> = {
   online: {
     label: "Online",
     className:
@@ -45,8 +45,9 @@ const channelConfig: Record<Channel, { label: string; className: string }> = {
   },
 };
 
-export function ChannelBadge({ channel }: { channel: Channel }) {
-  const config = channelConfig[channel];
+export function ChannelBadge({ channel }: { channel: OrderChannel | string }) {
+  const config =
+    channelConfig[channel as OrderChannel] ?? channelConfig.online;
   return (
     <Badge variant="outline" className={config.className}>
       {config.label}
@@ -54,8 +55,12 @@ export function ChannelBadge({ channel }: { channel: Channel }) {
   );
 }
 
-export function ChannelBadgeList({ channels }: { channels: Channel[] }) {
-  if (channels.length === 0) {
+export function ChannelBadgeList({
+  channels,
+}: {
+  channels: Array<OrderChannel | string>;
+}) {
+  if (!channels || channels.length === 0) {
     return <span className="text-sm text-muted-foreground">—</span>;
   }
   return (
