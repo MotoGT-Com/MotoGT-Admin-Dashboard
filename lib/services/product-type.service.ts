@@ -39,14 +39,29 @@ export interface UpdateProductTypeDto {
 
 class ProductTypeService {
   /**
-   * Get all product types
-   * GET /api/product-types
+   * Get all product types (paginates until exhausted — API max page size is 100).
+   * GET /api/admin/product-types
    */
   async getAll(languageId?: string): Promise<ProductType[]> {
     try {
-      const params = languageId ? { languageId } : undefined;
-      const response = await apiClient.get<any>('/admin/product-types', params);
-      return response.data.data.productTypes;
+      const all: ProductType[] = [];
+      const limit = 100;
+      for (let page = 1; page <= 20; page++) {
+        const params: Record<string, string | number> = { page, limit };
+        if (languageId) params.languageId = languageId;
+        const response = await apiClient.get<any>('/admin/product-types', params);
+        const payload = response.data?.data;
+        const batch: ProductType[] = Array.isArray(payload?.productTypes)
+          ? payload.productTypes
+          : Array.isArray(payload)
+            ? payload
+            : [];
+        all.push(...batch);
+        const total = payload?.total ?? payload?.meta?.total;
+        if (batch.length < limit) break;
+        if (typeof total === 'number' && all.length >= total) break;
+      }
+      return all;
     } catch (error: unknown) {
       console.error('Get product types error:', error);
       throw new Error(getApiErrorMessage(error, 'Failed to fetch product types'));

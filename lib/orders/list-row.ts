@@ -1,7 +1,7 @@
 /**
  * Map admin order list API rows into the Orders table view model.
  */
-import type { Order } from '@/lib/services/order.service';
+import type { GuestOrder, Order } from '@/lib/services/order.service';
 import type { AccountStatus, OrderChannel, OrderKind } from '@/lib/domain/channels';
 import { channelLabel } from '@/lib/domain/channels';
 import { displayCustomerEmail } from '@/lib/customers/email';
@@ -98,6 +98,49 @@ export function mapOrderToListRow(order: Order): ListOrderRow {
     discountAmount: parseAmount(order.discountAmount),
     staffMember: order.staffMember ?? null,
     isGuest,
+  };
+}
+
+/** Map GET /admin/orders/guest rows into the shared Orders table model. */
+export function mapGuestOrderToListRow(order: GuestOrder): ListOrderRow {
+  const lineItems = (order.items || []).map((line, index) => ({
+    sku:
+      line.productSnapshot?.productCode ||
+      line.productId ||
+      `item-${index}`,
+    name: line.productSnapshot?.translations?.en?.name || 'Item',
+    quantity: line.quantity || 0,
+  }));
+
+  const itemCount =
+    order.itemCount ??
+    lineItems.reduce((sum, line) => sum + line.quantity, 0);
+
+  const paymentMethodType = order.paymentMethod?.toLowerCase() || null;
+
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    orderType: 'guest',
+    accountStatus: null,
+    channel: 'online',
+    customerName: 'Guest',
+    customerEmail: displayCustomerEmail(order.guestEmail) || order.guestEmail || '',
+    customerPhone: order.guestPhone || '',
+    city: '—',
+    totalAmount: parseAmount(order.totalAmount),
+    currency: order.currencyCode || 'JOD',
+    paymentMethodType,
+    paymentMethodLabel: paymentLabel(paymentMethodType),
+    paymentStatus: 'pending',
+    status: order.status,
+    createdAt: order.createdAt,
+    itemCount,
+    lineItems,
+    discountCode: null,
+    discountAmount: 0,
+    staffMember: null,
+    isGuest: true,
   };
 }
 
