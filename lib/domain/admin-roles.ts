@@ -33,7 +33,6 @@ export const ADMIN_SETTINGS_HREF = "/dashboard/admin-settings";
 
 /** Stub pages — Super Admin only until shipped. */
 export const COMING_SOON_HREFS = new Set([
-  "/dashboard/collections",
   "/dashboard/discounts",
   "/dashboard/cms",
   "/dashboard/newsletter",

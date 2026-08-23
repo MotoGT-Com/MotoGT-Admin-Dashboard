@@ -97,7 +97,11 @@ class CategoryService {
       if (params.limit) queryParams.set('limit', String(params.limit));
       
       const response = await apiClient.get<any>(`/categories/public?${queryParams.toString()}`);
-      return response.data.data;
+      const payload = response.data?.data;
+      if (Array.isArray(payload)) return payload;
+      if (Array.isArray(payload?.categories)) return payload.categories;
+      if (Array.isArray(payload?.items)) return payload.items;
+      return [];
     } catch (error: any) {
       console.error('List categories error:', error);
       throw new Error(error.response?.data?.error?.message || 'Failed to fetch categories');
@@ -175,7 +179,11 @@ class CategoryService {
       if (params.limit) queryParams.set('limit', String(params.limit));
       
       const response = await apiClient.get<any>(`/admin/categories?${queryParams.toString()}`);
-      return response.data.data;
+      const payload = response.data?.data;
+      if (Array.isArray(payload)) return payload;
+      if (Array.isArray(payload?.categories)) return payload.categories;
+      if (Array.isArray(payload?.items)) return payload.items;
+      return [];
     } catch (error: any) {
       console.error('List categories admin error:', error);
       throw new Error(error.response?.data?.error?.message || 'Failed to fetch categories');

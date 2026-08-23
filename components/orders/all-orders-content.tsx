@@ -50,6 +50,7 @@ import { orderService } from "@/lib/services/order.service";
 import { settingsService } from "@/lib/services/settings.service";
 import {
   mapOrderToListRow,
+  mapGuestOrderToListRow,
   channelLabel,
   type ListOrderRow,
 } from "@/lib/orders/list-row";
@@ -476,12 +477,99 @@ export function AllOrdersContent({
               ? selectedPaymentMethods[0]
               : undefined;
 
+        // Production GET /admin/orders rejects orderType=user|guest ("Invalid input
+        // data"). Guest checkouts live on GET /admin/orders/guest instead.
+        if (orderTypeFilter === "guest") {
+          // Guests are online-only.
+          if (channel === "in_store" || channel === "whatsapp") {
+            if (!cancelled) {
+              setRows([]);
+              setTotal(0);
+            }
+            return;
+          }
+
+          const guestStatus =
+            selectedStatuses.length === 1
+              ? (selectedStatuses[0] as
+                  | "pending"
+                  | "confirmed"
+                  | "processing"
+                  | "shipped"
+                  | "delivered"
+                  | "cancelled"
+                  | "refunded")
+              : undefined;
+          const emailSearch =
+            debouncedSearch.includes("@")
+              ? debouncedSearch.trim()
+              : undefined;
+
+          const response = await orderService.getGuestOrders({
+            storeId,
+            page,
+            limit: rowsPerPage,
+            ...(guestStatus ? { status: guestStatus } : {}),
+            ...(emailSearch ? { email: emailSearch } : {}),
+          });
+
+          if (cancelled) return;
+
+          let mapped = (response.items || []).map(mapGuestOrderToListRow);
+
+          if (debouncedSearch && !emailSearch) {
+            const q = debouncedSearch.toLowerCase();
+            mapped = mapped.filter(
+              (row) =>
+                row.orderNumber.toLowerCase().includes(q) ||
+                row.customerEmail.toLowerCase().includes(q) ||
+                row.customerPhone.toLowerCase().includes(q) ||
+                row.lineItems.some(
+                  (li) =>
+                    li.sku.toLowerCase().includes(q) ||
+                    li.name.toLowerCase().includes(q),
+                ),
+            );
+          }
+
+          if (selectedStatuses.length > 1) {
+            mapped = mapped.filter((row) =>
+              selectedStatuses.includes(row.status.toLowerCase()),
+            );
+          }
+
+          if (selectedPaymentMethods.length > 0) {
+            mapped = mapped.filter((row) => {
+              const pm = row.paymentMethodType?.toLowerCase() ?? null;
+              return pm != null && selectedPaymentMethods.includes(pm);
+            });
+          }
+
+          if (min != null) {
+            mapped = mapped.filter((row) => row.totalAmount >= min);
+          }
+          if (max != null) {
+            mapped = mapped.filter((row) => row.totalAmount <= max);
+          }
+
+          setRows(mapped);
+          setTotal(
+            emailSearch ||
+              selectedStatuses.length > 1 ||
+              selectedPaymentMethods.length > 0 ||
+              min != null ||
+              max != null ||
+              (debouncedSearch && !emailSearch)
+              ? mapped.length
+              : (response.total ?? mapped.length),
+          );
+          return;
+        }
+
         const response = await orderService.getOrders({
           storeId,
           ...(channel !== "all" ? { channel } : {}),
-          ...(orderTypeFilter !== "all"
-            ? { orderType: orderTypeFilter }
-            : {}),
+          // Do NOT send orderType=user|guest — rejected by live API validation.
           ...(debouncedSearch ? { q: debouncedSearch } : {}),
           ...(selectedStatuses.length > 0
             ? { status: selectedStatuses.join(",") }
@@ -508,6 +596,10 @@ export function AllOrdersContent({
 
         let mapped = (response.items || []).map(mapOrderToListRow);
 
+        if (orderTypeFilter === "user") {
+          mapped = mapped.filter((row) => !row.isGuest);
+        }
+
         if (selectedPaymentMethods.length > 1) {
           mapped = mapped.filter((row) => {
             const pm = row.paymentMethodType?.toLowerCase() ?? null;
@@ -516,7 +608,11 @@ export function AllOrdersContent({
         }
 
         setRows(mapped);
-        setTotal(response.total ?? mapped.length);
+        setTotal(
+          orderTypeFilter === "user" || selectedPaymentMethods.length > 1
+            ? mapped.length
+            : (response.total ?? mapped.length),
+        );
       } catch (err) {
         if (!cancelled) {
           setRows([]);

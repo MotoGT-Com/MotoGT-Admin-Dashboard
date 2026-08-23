@@ -92,6 +92,13 @@ export interface ProductListParams {
   carId?: string;
   carYear?: number;
   isActive?: boolean;
+  /** Backend price range filters */
+  minPrice?: number;
+  maxPrice?: number;
+  /** Backend stock > 0 filter */
+  inStock?: boolean;
+  /** Batch fetch by product IDs when supported */
+  productIds?: string | string[];
   sortBy?: "name" | "price" | "createdAt" | "stockQuantity" | "carCompatibility" | "random";
   sortOrder?: "asc" | "desc";
 }
@@ -411,6 +418,23 @@ class ProductService {
       if (params.carYear) queryParams.set('carYear', String(params.carYear));
       if (typeof params.isActive === 'boolean') {
         queryParams.set('isActive', String(params.isActive));
+      }
+      if (typeof params.minPrice === 'number') {
+        queryParams.set('minPrice', String(params.minPrice));
+      }
+      if (typeof params.maxPrice === 'number') {
+        queryParams.set('maxPrice', String(params.maxPrice));
+      }
+      if (typeof params.inStock === 'boolean') {
+        queryParams.set('inStock', String(params.inStock));
+      }
+      if (params.productIds) {
+        const ids = Array.isArray(params.productIds)
+          ? params.productIds
+          : [params.productIds];
+        if (ids.length > 0) {
+          queryParams.set('productIds', ids.join(','));
+        }
       }
       if (params.sortBy) queryParams.set('sortBy', params.sortBy);
       if (params.sortOrder) queryParams.set('sortOrder', params.sortOrder);

@@ -57,7 +57,7 @@ class CarService {
       
       // Add pagination
       queryParams.set('page', String(params.page || 1));
-      queryParams.set('limit', String(params.limit || 100)); // Get more cars to group by brand
+      queryParams.set('limit', String(params.limit || 100)); // API max is 100
       
       // Add optional filters
       if (params.brand) queryParams.set('brand', params.brand);
@@ -66,12 +66,30 @@ class CarService {
       if (params.yearTo) queryParams.set('yearTo', String(params.yearTo));
       if (params.store_id) queryParams.set('store_id', params.store_id);
       
-      const response = await apiClient.get<Car[]>(`/cars?${queryParams.toString()}`);
-      return response.data.data;
+      const response = await apiClient.get<any>(`/cars?${queryParams.toString()}`);
+      const payload = response.data?.data;
+      if (Array.isArray(payload)) return payload;
+      if (Array.isArray(payload?.items)) return payload.items;
+      if (Array.isArray(payload?.cars)) return payload.cars;
+      return [];
     } catch (error: any) {
       console.error('List cars error:', error);
       throw new Error(error.response?.data?.error?.message || 'Failed to fetch cars');
     }
+  }
+
+  /**
+   * Fetch every car page for a store (API max limit = 100).
+   */
+  async listAllCars(params: Omit<CarListParams, 'page' | 'limit'> = {}): Promise<Car[]> {
+    const all: Car[] = [];
+    const limit = 100;
+    for (let page = 1; page <= 50; page++) {
+      const batch = await this.listCars({ ...params, page, limit });
+      all.push(...batch);
+      if (batch.length < limit) break;
+    }
+    return all;
   }
 
   /**
