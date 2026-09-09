@@ -59,7 +59,8 @@ import { periodLabel, resolveDashboardDateRange } from '@/lib/dashboard-utils';
 
 const RECENT_ORDERS_LIMIT = 5;
 
-const PRESET_PERIODS: Exclude<DashboardPeriod, 'custom' | 'today'>[] = [
+const PRESET_PERIODS: Exclude<DashboardPeriod, 'custom'>[] = [
+  'today',
   '7d',
   '14d',
   '30d',
@@ -164,7 +165,7 @@ async function applyDashboardEnrichment(
 }
 
 export default function DashboardPage() {
-  const [period, setPeriod] = useState<DashboardPeriod>('7d');
+  const [period, setPeriod] = useState<DashboardPeriod>('today');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
@@ -431,9 +432,7 @@ export default function DashboardPage() {
       return;
     }
     if (
-      PRESET_PERIODS.includes(
-        value as Exclude<DashboardPeriod, 'custom' | 'today'>,
-      )
+      PRESET_PERIODS.includes(value as Exclude<DashboardPeriod, 'custom'>)
     ) {
       setPeriod(value as DashboardPeriod);
     }
@@ -499,6 +498,7 @@ export default function DashboardPage() {
                 <SelectValue placeholder="Period">{label}</SelectValue>
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="today">Last 24 hours</SelectItem>
                 <SelectItem value="7d">Last 7 days</SelectItem>
                 <SelectItem value="14d">Last 2 weeks</SelectItem>
                 <SelectItem value="30d">Last 30 days</SelectItem>

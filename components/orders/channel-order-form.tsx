@@ -756,7 +756,7 @@ export function ChannelOrderForm({
                         className={cn(
                           "rounded px-2 h-6 text-[11px] font-medium transition-colors",
                           discountMode === "amount"
-                            ? "bg-background text-foreground shadow-sm"
+                            ? "bg-red-600 text-white shadow-sm"
                             : "text-muted-foreground hover:text-foreground",
                         )}
                         onClick={() => {
@@ -772,7 +772,7 @@ export function ChannelOrderForm({
                         className={cn(
                           "rounded px-2 h-6 text-[11px] font-medium transition-colors",
                           discountMode === "percent"
-                            ? "bg-background text-foreground shadow-sm"
+                            ? "bg-red-600 text-white shadow-sm"
                             : "text-muted-foreground hover:text-foreground",
                         )}
                         onClick={() => {

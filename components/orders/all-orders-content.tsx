@@ -18,6 +18,7 @@ import {
   Percent,
   SlidersHorizontal,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,7 @@ import {
 } from "@/components/ui/tooltip";
 import { OrderQuickViewSheet } from "@/components/orders/order-quick-view-sheet";
 import { NewOrderButton } from "@/components/orders/new-order-button";
+import { EditOrderDateModal } from "@/components/order-action-modals";
 import { formatMoney } from "@/lib/dashboard-utils";
 import { orderService } from "@/lib/services/order.service";
 import { settingsService } from "@/lib/services/settings.service";
@@ -406,6 +408,8 @@ export function AllOrdersContent({
   const [quickViewId, setQuickViewId] = useState<string | null>(null);
   const [quickViewType, setQuickViewType] = useState<OrderKind>("user");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [editDateRow, setEditDateRow] = useState<ListOrderRow | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   const [visibleColumns, setVisibleColumns] = useState({
     orderNumber: true,
@@ -645,6 +649,7 @@ export function AllOrdersContent({
     needsAttentionOnly,
     sortKey,
     sortOrder,
+    reloadToken,
   ]);
 
   const cityOptions = useMemo(() => {
@@ -728,6 +733,10 @@ export function AllOrdersContent({
     setQuickViewId(row.id);
     setQuickViewType(row.orderType);
     setQuickViewOpen(true);
+  };
+
+  const openEditDate = (row: ListOrderRow) => {
+    setEditDateRow(row);
   };
 
   const chips: { key: string; label: string; onClear: () => void }[] = [];
@@ -1307,7 +1316,15 @@ export function AllOrdersContent({
                       )}
                       {visibleColumns.createdAt && (
                         <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">
-                          {new Date(row.createdAt).toLocaleString()}
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 -mx-1 text-left hover:bg-muted hover:text-foreground transition-colors"
+                            title="Edit order date"
+                            onClick={() => openEditDate(row)}
+                          >
+                            {new Date(row.createdAt).toLocaleString()}
+                            <Pencil className="h-3 w-3 opacity-50" />
+                          </button>
                         </td>
                       )}
                       <td className="py-3 px-4">
@@ -1328,6 +1345,12 @@ export function AllOrdersContent({
                             >
                               <Eye size={16} className="mr-2" />
                               Quick view
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openEditDate(row)}
+                            >
+                              <CalendarRange size={16} className="mr-2" />
+                              Edit date
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem asChild>
@@ -1422,6 +1445,15 @@ export function AllOrdersContent({
         orderId={quickViewId}
         orderType={quickViewType}
         fallbackCurrency={fallbackCurrency}
+      />
+
+      <EditOrderDateModal
+        isOpen={!!editDateRow}
+        onClose={() => setEditDateRow(null)}
+        orderId={editDateRow?.id ?? ""}
+        orderNumber={editDateRow?.orderNumber}
+        currentCreatedAt={editDateRow?.createdAt ?? ""}
+        onSuccess={() => setReloadToken((n) => n + 1)}
       />
     </div>
   );

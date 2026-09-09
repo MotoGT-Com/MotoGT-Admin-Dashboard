@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -394,6 +394,110 @@ export function RefundOrderModal({
             </Button>
             <Button type="submit" variant="destructive" disabled={isLoading}>
               {isLoading ? "Processing..." : "Process Refund"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function toDateTimeLocalValue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+interface EditOrderDateModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  orderId: string;
+  orderNumber?: string;
+  currentCreatedAt: string;
+  onSuccess: () => void;
+}
+
+export function EditOrderDateModal({
+  isOpen,
+  onClose,
+  orderId,
+  orderNumber,
+  currentCreatedAt,
+  onSuccess,
+}: EditOrderDateModalProps) {
+  const [createdAtLocal, setCreatedAtLocal] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCreatedAtLocal(toDateTimeLocalValue(currentCreatedAt));
+    }
+  }, [isOpen, currentCreatedAt]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createdAtLocal) {
+      toast.error("Choose a date and time");
+      return;
+    }
+
+    const next = new Date(createdAtLocal);
+    if (Number.isNaN(next.getTime())) {
+      toast.error("Invalid date and time");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await orderService.updateOrderCreatedAt(orderId, next.toISOString());
+      toast.success(
+        orderNumber ? `Updated date for ${orderNumber}` : "Order date updated",
+      );
+      onSuccess();
+      onClose();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update order date");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Edit order date</DialogTitle>
+          <DialogDescription>
+            Change when this order was created
+            {orderNumber ? ` (${orderNumber})` : ""}. This affects filters and
+            reporting.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="orderCreatedAt">Order date & time</Label>
+              <Input
+                id="orderCreatedAt"
+                type="datetime-local"
+                value={createdAtLocal}
+                onChange={(e) => setCreatedAtLocal(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={isLoading}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isLoading || !createdAtLocal}>
+              {isLoading ? "Saving..." : "Save date"}
             </Button>
           </DialogFooter>
         </form>

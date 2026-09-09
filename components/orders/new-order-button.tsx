@@ -23,11 +23,12 @@ interface NewOrderButtonProps {
   className?: string;
 }
 
+const NEW_ORDER_HREF = "/dashboard/orders/new";
+
 /**
  * New order control.
- * - Desktop hover: In-Store / WhatsApp options
- * - Mobile FAB: tap opens channel menu
- * - Toolbar click (desktop): New Order page (In-Store by default)
+ * - Click / tap: go to New Order page
+ * - Desktop hover: optional In-Store / WhatsApp shortcuts
  */
 export function NewOrderButton({
   variant = "toolbar",
@@ -67,16 +68,12 @@ export function NewOrderButton({
   };
 
   const isFab = variant === "fab";
+  const hoverMenus = !coarsePointer;
 
   const goToNewOrder = (e: React.MouseEvent) => {
     e.preventDefault();
-    // On touch / FAB: open channel picker instead of navigating immediately.
-    if (coarsePointer || isFab) {
-      setOpen(true);
-      return;
-    }
     setOpen(false);
-    router.push("/dashboard/orders/new?channel=in_store");
+    router.push(NEW_ORDER_HREF);
   };
 
   return (
@@ -86,10 +83,10 @@ export function NewOrderButton({
           "fixed bottom-6 right-6 z-40 max-sm:bottom-[max(1.5rem,env(safe-area-inset-bottom))]",
         className,
       )}
-      onMouseEnter={!coarsePointer ? openMenu : undefined}
-      onMouseLeave={!coarsePointer ? scheduleClose : undefined}
+      onMouseEnter={hoverMenus ? openMenu : undefined}
+      onMouseLeave={hoverMenus ? scheduleClose : undefined}
     >
-      <DropdownMenu open={open} onOpenChange={setOpen} modal={coarsePointer || isFab}>
+      <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
             size="default"
@@ -98,14 +95,12 @@ export function NewOrderButton({
                 ? "h-12 gap-2 rounded-full px-5 shadow-lg border border-primary/20 bg-primary text-primary-foreground hover:bg-primary/90 max-sm:h-14 max-sm:w-14 max-sm:px-0 max-sm:gap-0"
                 : "gap-2",
             )}
-            aria-label="New order — choose channel"
+            aria-label="New order"
             title="New order"
             onClick={goToNewOrder}
             onPointerDown={(e) => {
-              // Stop Radix from toggling open on click/press (desktop hover path).
-              if (!coarsePointer && !isFab) {
-                e.preventDefault();
-              }
+              // Navigate on press; don't let Radix toggle the menu open.
+              e.preventDefault();
             }}
           >
             <Plus size={isFab ? 18 : 16} className="shrink-0" />
@@ -118,38 +113,40 @@ export function NewOrderButton({
             </span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          side="top"
-          sideOffset={12}
-          className="w-56"
-          onCloseAutoFocus={(e) => e.preventDefault()}
-          onMouseEnter={!coarsePointer ? openMenu : undefined}
-          onMouseLeave={!coarsePointer ? scheduleClose : undefined}
-        >
-          <DropdownMenuLabel>New order</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link
-              href="/dashboard/orders/new?channel=in_store"
-              className="gap-2"
-              onClick={() => setOpen(false)}
-            >
-              <Store className="h-4 w-4" />
-              In-Store sale
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link
-              href="/dashboard/orders/new?channel=whatsapp"
-              className="gap-2"
-              onClick={() => setOpen(false)}
-            >
-              <WhatsAppIcon className="h-4 w-4" />
-              WhatsApp order
-            </Link>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
+        {hoverMenus ? (
+          <DropdownMenuContent
+            align="end"
+            side="top"
+            sideOffset={12}
+            className="w-56"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            onMouseEnter={openMenu}
+            onMouseLeave={scheduleClose}
+          >
+            <DropdownMenuLabel>New order</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link
+                href={`${NEW_ORDER_HREF}?channel=in_store`}
+                className="gap-2"
+                onClick={() => setOpen(false)}
+              >
+                <Store className="h-4 w-4" />
+                In-Store sale
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link
+                href={`${NEW_ORDER_HREF}?channel=whatsapp`}
+                className="gap-2"
+                onClick={() => setOpen(false)}
+              >
+                <WhatsAppIcon className="h-4 w-4" />
+                WhatsApp order
+              </Link>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        ) : null}
       </DropdownMenu>
     </div>
   );

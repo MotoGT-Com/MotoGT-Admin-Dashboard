@@ -91,7 +91,7 @@ export function periodLabel(
 ): string {
   switch (period) {
     case 'today':
-      return 'Today';
+      return 'Last 24 hours';
     case '7d':
       return 'Last 7 days';
     case '14d':

@@ -16,6 +16,7 @@ import {
   CheckCircle,
   XCircle,
   DollarSign,
+  Pencil,
 } from "lucide-react";
 import Link from "next/link";
 import { downloadInvoice } from "@/lib/invoice-generator";
@@ -39,6 +40,7 @@ import {
   DeliverOrderModal,
   CancelOrderModal,
   RefundOrderModal,
+  EditOrderDateModal,
 } from "@/components/order-action-modals";
 
 export default function OrderDetailsPage() {
@@ -63,6 +65,7 @@ function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
   const [deliverModalOpen, setDeliverModalOpen] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [editDateModalOpen, setEditDateModalOpen] = useState(false);
 
   const loadOrder = async () => {
     const orderData = isGuest
@@ -316,9 +319,21 @@ function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
                     <p className="text-sm text-muted-foreground mt-3">
                       Order Date
                     </p>
-                    <p className="text-sm">
-                      {new Date(order.order.createdAt).toLocaleString()}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm">
+                        {new Date(order.order.createdAt).toLocaleString()}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => setEditDateModalOpen(true)}
+                      >
+                        <Pencil className="h-3.5 w-3.5 mr-1" />
+                        Edit
+                      </Button>
+                    </div>
                     <p className="text-sm text-muted-foreground mt-3">
                       Payment Method
                     </p>
@@ -593,6 +608,14 @@ function BackendOrderDetailsPage({ orderId }: { orderId: string }) {
         onClose={() => setRefundModalOpen(false)}
         orderId={orderId}
         orderTotal={Number(order?.order?.totalAmount || 0)}
+        onSuccess={refreshOrderData}
+      />
+      <EditOrderDateModal
+        isOpen={editDateModalOpen}
+        onClose={() => setEditDateModalOpen(false)}
+        orderId={orderId}
+        orderNumber={order?.order?.orderNumber}
+        currentCreatedAt={order?.order?.createdAt ?? ""}
         onSuccess={refreshOrderData}
       />
     </div>

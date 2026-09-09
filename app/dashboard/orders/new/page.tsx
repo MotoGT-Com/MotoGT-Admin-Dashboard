@@ -1,8 +1,10 @@
 "use client";
 
 import { Suspense, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Store } from "lucide-react";
+import { ArrowLeft, Store } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ChannelOrderForm,
@@ -34,11 +36,19 @@ function NewOrderPageContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">New Order</h1>
-        <p className="text-muted-foreground mt-1">
-          Create an In-Store or WhatsApp order for a customer.
-        </p>
+      <div className="space-y-4">
+        <Button variant="outline" size="sm" className="gap-2" asChild>
+          <Link href="/dashboard/orders">
+            <ArrowLeft size={16} />
+            Back to Orders
+          </Link>
+        </Button>
+        <div>
+          <h1 className="text-3xl font-bold">New Order</h1>
+          <p className="text-muted-foreground mt-1">
+            Create an In-Store or WhatsApp order for a customer.
+          </p>
+        </div>
       </div>
 
       <Tabs value={channel} onValueChange={setChannel}>

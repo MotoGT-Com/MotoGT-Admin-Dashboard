@@ -315,6 +315,29 @@ class OrderService {
   }
 
   /**
+   * Update order created date (admin)
+   * PATCH /admin/orders/{orderId}/created-at
+   */
+  async updateOrderCreatedAt(
+    orderId: string,
+    createdAt: string,
+  ): Promise<{ orderId: string; createdAt: string; oldCreatedAt: string }> {
+    try {
+      const response = await apiClient.patch(
+        `/admin/orders/${orderId}/created-at`,
+        { createdAt },
+      );
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Update order createdAt error:', error);
+      throw new Error(
+        error.response?.data?.error?.message ||
+          'Failed to update order date',
+      );
+    }
+  }
+
+  /**
    * Ship order (admin)
    * POST /admin/orders/{orderId}/ship
    */
