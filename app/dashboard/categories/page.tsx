@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -50,6 +51,8 @@ import {
 import { settingsService } from "@/lib/services/settings.service";
 import { uploadService } from "@/lib/services/upload.service";
 import { useAuth } from "@/lib/context/auth-context";
+import { useCatalogScope } from "@/lib/context/catalog-scope-context";
+import { matchesProductType } from "@/lib/domain/product-types";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
 import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
@@ -59,7 +62,21 @@ interface CategoryWithExpanded extends Category {
 }
 
 export default function CategoriesPage() {
+  return (
+    <Suspense
+      fallback={<LoadingState variant="full" label="Loading categories…" />}
+    >
+      <CategoriesPageContent />
+    </Suspense>
+  );
+}
+
+function CategoriesPageContent() {
   const { user } = useAuth();
+  const catalogScope = useCatalogScope();
+  const searchParams = useSearchParams();
+  const productTypeQuery = searchParams.get("productType");
+  const lockedTypeKey = catalogScope?.code || productTypeQuery || null;
 
   // Store and Language state
   const [stores, setStores] = useState<any[]>([]);
@@ -76,6 +93,16 @@ export default function CategoriesPage() {
 
   // Filter state
   const [filterProductTypeId, setFilterProductTypeId] = useState<string>("all");
+
+  const scopedProductType = useMemo(() => {
+    if (!lockedTypeKey || productTypes.length === 0) return null;
+    return (
+      productTypes.find((pt) => matchesProductType(pt, lockedTypeKey)) || null
+    );
+  }, [lockedTypeKey, productTypes]);
+
+  const scopedProductTypeId = scopedProductType?.id ?? null;
+  const isTypeScoped = Boolean(lockedTypeKey);
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -162,6 +189,13 @@ export default function CategoriesPage() {
     loadProductTypes();
   }, [selectedLanguage]);
 
+  // Lock type filter when scoped to Spare Parts (or ?productType=)
+  useEffect(() => {
+    if (scopedProductTypeId) {
+      setFilterProductTypeId(scopedProductTypeId);
+    }
+  }, [scopedProductTypeId]);
+
   // Load categories
   useEffect(() => {
     const loadCategories = async () => {
@@ -209,7 +243,7 @@ export default function CategoriesPage() {
       nameAr: "",
       description: "",
       descriptionAr: "",
-      productTypeId: "",
+      productTypeId: scopedProductTypeId || "",
       parentId: "none",
       image: "",
       sortOrder: 1,
@@ -466,12 +500,18 @@ export default function CategoriesPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-        <div className="min-w-0">
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Categories</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage your product categories and subcategories
-          </p>
-        </div>
+        {!catalogScope ? (
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
+              Categories
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Manage your product categories and subcategories
+            </p>
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1" />
+        )}
         <Button onClick={handleOpenAddDialog} className="gap-2 w-full sm:w-auto shrink-0">
           <Plus size={18} />
           Add Category
@@ -524,31 +564,33 @@ export default function CategoriesPage() {
           </Select>
         </div>
 
-        <div className="w-64">
-          <Label>Filter by Product Type</Label>
-          <Select
-            value={filterProductTypeId}
-            onValueChange={setFilterProductTypeId}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="All Product Types" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Product Types</SelectItem>
-              {Array.isArray(productTypes) &&
-                productTypes
-                  .filter((pt) => pt.isActive)
-                  .sort((a, b) => a.sortOrder - b.sortOrder)
-                  .map((pt) => (
-                    <SelectItem key={pt.id} value={pt.id}>
-                      {pt.translations?.find(
-                        (t) => t.languageCode === selectedLanguage?.code,
-                      )?.name || pt.name}
-                    </SelectItem>
-                  ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!isTypeScoped ? (
+          <div className="w-64">
+            <Label>Filter by Product Type</Label>
+            <Select
+              value={filterProductTypeId}
+              onValueChange={setFilterProductTypeId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All Product Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Product Types</SelectItem>
+                {Array.isArray(productTypes) &&
+                  productTypes
+                    .filter((pt) => pt.isActive)
+                    .sort((a, b) => a.sortOrder - b.sortOrder)
+                    .map((pt) => (
+                      <SelectItem key={pt.id} value={pt.id}>
+                        {pt.translations?.find(
+                          (t) => t.languageCode === selectedLanguage?.code,
+                        )?.name || pt.name}
+                      </SelectItem>
+                    ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
       </div>
 
       {/* Statistics */}
@@ -788,6 +830,7 @@ export default function CategoriesPage() {
                 </Label>
                 <Select
                   value={formData.productTypeId}
+                  disabled={isTypeScoped && !editingCategory}
                   onValueChange={(value) =>
                     setFormData({ ...formData, productTypeId: value })
                   }
@@ -804,6 +847,11 @@ export default function CategoriesPage() {
                       Array.isArray(productTypes) &&
                       productTypes
                         .filter((pt) => pt.isActive)
+                        .filter((pt) =>
+                          isTypeScoped && scopedProductTypeId
+                            ? pt.id === scopedProductTypeId
+                            : true,
+                        )
                         .sort((a, b) => a.sortOrder - b.sortOrder)
                         .map((pt) => (
                           <SelectItem key={pt.id} value={pt.id}>

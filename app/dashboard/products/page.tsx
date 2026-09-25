@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -111,6 +111,11 @@ import {
   ProductType,
 } from "@/lib/services/product-type.service";
 import { useAuth } from "@/lib/context/auth-context";
+import { useCatalogScope } from "@/lib/context/catalog-scope-context";
+import {
+  matchesProductType,
+  productTypeRequiresFitment,
+} from "@/lib/domain/product-types";
 import { toast } from "sonner";
 import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
 
@@ -179,8 +184,12 @@ const getCarInfo = (product: Product): string => {
 
 export default function ProductsPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const catalogScope = useCatalogScope();
+  const productTypeQuery = searchParams.get("productType");
+  const lockedTypeKey = catalogScope?.code || productTypeQuery || null;
 
   // Store and Language state
   const [stores, setStores] = useState<any[]>([]);
@@ -233,6 +242,16 @@ export default function ProductsPage() {
 
   // Product types
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
+
+  const scopedProductType = useMemo(() => {
+    if (!lockedTypeKey || productTypes.length === 0) return null;
+    return (
+      productTypes.find((pt) => matchesProductType(pt, lockedTypeKey)) || null
+    );
+  }, [lockedTypeKey, productTypes]);
+
+  const scopedProductTypeId = scopedProductType?.id ?? null;
+  const isTypeScoped = Boolean(lockedTypeKey);
 
   // Car brands, models, and trims
   const [carBrands, setCarBrands] = useState<string[]>([]);
@@ -465,8 +484,11 @@ export default function ProductsPage() {
             selectedLanguage.id,
           );
           handleOpenDialog(productToEdit);
-          // Clear the query parameter
-          router.replace("/dashboard/products", { scroll: false });
+          // Clear the query parameter (keep path — spare-parts section or products)
+          const params = new URLSearchParams(searchParams.toString());
+          params.delete("edit");
+          const qs = params.toString();
+          router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
         } catch (error: any) {
           console.error("Failed to fetch product for editing:", error);
           toast.error("Error", {
@@ -477,6 +499,15 @@ export default function ProductsPage() {
       fetchProductToEdit();
     }
   }, [searchParams, selectedStore, selectedLanguage]);
+
+  // Lock product-type filter when scoped (Spare Parts section or ?productType=)
+  useEffect(() => {
+    if (scopedProductTypeId) {
+      setFilterProductType(scopedProductTypeId);
+      setFilterCategories([]);
+      setFilterSubCategories([]);
+    }
+  }, [scopedProductTypeId]);
 
   // Helper function to get car ID from brand/model
   const getCarIdFromBrandModel = (
@@ -1193,7 +1224,7 @@ export default function ProductsPage() {
         itemCode: "",
         name: "",
         sellingPrice: "",
-        productType: "",
+        productType: scopedProductTypeId || "",
         carMake: "",
         carModel: "",
         carYearFrom: "",
@@ -1438,7 +1469,7 @@ export default function ProductsPage() {
     );
     if (
       !editingProduct &&
-      selectedProductType?.code === "car_parts" &&
+      productTypeRequiresFitment(selectedProductType?.code) &&
       selectedCarCompatibility.length === 0
     ) {
       toast.error("Validation Error", {
@@ -1513,8 +1544,9 @@ export default function ProductsPage() {
             : undefined,
         // Add car compatibility for car_parts product types with year ranges
         carCompatibility:
-          productTypes.find((pt) => pt.id === formData.productType)?.code ===
-            "car_parts" && selectedCarCompatibility.length > 0
+          productTypeRequiresFitment(
+            productTypes.find((pt) => pt.id === formData.productType)?.code,
+          ) && selectedCarCompatibility.length > 0
             ? selectedCarCompatibility.slice(0, 1).map((compat) => ({
                 carId: compat.carId,
                 yearFrom: compat.yearFrom,
@@ -1993,12 +2025,26 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-        <div className="min-w-0">
-          <h1 className="text-2xl sm:text-3xl font-bold">Products</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-            Manage your automotive accessories inventory
-          </p>
-        </div>
+        {!catalogScope ? (
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold">
+              {scopedProductType
+                ? scopedProductType.translations?.find(
+                    (t) => t.languageCode === selectedLanguage?.code,
+                  )?.name ||
+                  scopedProductType.name ||
+                  "Products"
+                : "Products"}
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
+              {isTypeScoped
+                ? "Manage products for this catalog type"
+                : "Manage your automotive accessories inventory"}
+            </p>
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1" />
+        )}
         <div className="flex gap-2 flex-wrap">
           <Button
             variant="outline"
@@ -2082,31 +2128,33 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {/* Product Type tabs */}
-        <Tabs
-          value={filterProductType}
-          onValueChange={(value) => {
-            setFilterProductType(value);
-            setFilterCategories([]);
-            setFilterSubCategories([]);
-          }}
-        >
-          <TabsList className="h-auto flex-wrap">
-            <TabsTrigger value="any">All Types</TabsTrigger>
-            {productTypes
-              .filter((pt) => pt.isActive)
-              .sort((a, b) => a.sortOrder - b.sortOrder)
-              .map((type) => (
-                <TabsTrigger key={type.id} value={type.id}>
-                  {type?.translations?.find(
-                    (t) => t.languageCode === selectedLanguage.code,
-                  )?.name ||
-                    type?.translations[0]?.name ||
-                    "Unnamed"}
-                </TabsTrigger>
-              ))}
-          </TabsList>
-        </Tabs>
+        {/* Product Type tabs — hidden when locked to Spare Parts (or other scope) */}
+        {!isTypeScoped ? (
+          <Tabs
+            value={filterProductType}
+            onValueChange={(value) => {
+              setFilterProductType(value);
+              setFilterCategories([]);
+              setFilterSubCategories([]);
+            }}
+          >
+            <TabsList className="h-auto flex-wrap">
+              <TabsTrigger value="any">All Types</TabsTrigger>
+              {productTypes
+                .filter((pt) => pt.isActive)
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((type) => (
+                  <TabsTrigger key={type.id} value={type.id}>
+                    {type?.translations?.find(
+                      (t) => t.languageCode === selectedLanguage.code,
+                    )?.name ||
+                      type?.translations[0]?.name ||
+                      "Unnamed"}
+                  </TabsTrigger>
+                ))}
+            </TabsList>
+          </Tabs>
+        ) : null}
 
         <CompletenessQuickFilters
           active={completenessFilters}
@@ -2330,7 +2378,7 @@ export default function ProductsPage() {
             <Button
               variant="outline"
               onClick={() => {
-                setFilterProductType("any");
+                if (!isTypeScoped) setFilterProductType("any");
                 setFilterCategories([]);
                 setFilterSubCategories([]);
                 setFilterCarBrands([]);
@@ -2400,7 +2448,7 @@ export default function ProductsPage() {
                     variant="outline"
                     onClick={() => {
                       setSearchQuery("");
-                      setFilterProductType("any");
+                      if (!isTypeScoped) setFilterProductType("any");
                       setFilterCategories([]);
                       setFilterSubCategories([]);
                       setFilterCarBrands([]);
@@ -2748,11 +2796,14 @@ export default function ProductsPage() {
               <Label htmlFor="productType">Product Type *</Label>
               <Select
                 value={formData.productType}
+                disabled={isTypeScoped && !editingProduct}
                 onValueChange={(value: string) => {
                   const selectedType = productTypes.find(
                     (pt) => pt.id === value,
                   );
-                  const requiresCars = selectedType?.code === "car_parts";
+                  const requiresCars = productTypeRequiresFitment(
+                    selectedType?.code,
+                  );
 
                   setFormData({
                     ...formData,
@@ -2774,6 +2825,11 @@ export default function ProductsPage() {
                 <SelectContent>
                   {productTypes
                     .filter((pt) => pt.isActive)
+                    .filter((pt) =>
+                      isTypeScoped && scopedProductTypeId
+                        ? pt.id === scopedProductTypeId
+                        : true,
+                    )
                     .sort((a, b) => a.sortOrder - b.sortOrder)
                     .map((type) => (
                       <SelectItem key={type.id} value={type.id}>
@@ -2785,16 +2841,19 @@ export default function ProductsPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {productTypes.find((pt) => pt.id === formData.productType)
-                  ?.code === "car_parts"
+                {productTypeRequiresFitment(
+                  productTypes.find((pt) => pt.id === formData.productType)
+                    ?.code,
+                )
                   ? "This product requires vehicle make, model, and year specifications."
                   : "This product does not require vehicle specifications."}
               </p>
             </div>
 
             {/* Car Compatibility Selection - Only for car_parts product types */}
-            {productTypes.find((pt) => pt.id === formData.productType)?.code ===
-              "car_parts" &&
+            {productTypeRequiresFitment(
+              productTypes.find((pt) => pt.id === formData.productType)?.code,
+            ) &&
               !editingProduct && (
                 <div className="space-y-3 border rounded-lg p-4 bg-accent/5">
                   <div>
@@ -3451,8 +3510,9 @@ export default function ProductsPage() {
 
             {/* Car Compatibility Section - Only for existing car_parts products */}
             {editingProduct &&
-              productTypes.find((pt) => pt.id === formData.productType)?.code ===
-                "car_parts" && (
+              productTypeRequiresFitment(
+                productTypes.find((pt) => pt.id === formData.productType)?.code,
+              ) && (
               <div className="space-y-4 border-t border-primary/20 pt-4 mt-6 bg-primary/5 p-4 rounded-lg">
                 <div className="flex items-center justify-between">
                   <div>

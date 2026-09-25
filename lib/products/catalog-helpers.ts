@@ -258,10 +258,14 @@ export function buildImportPreview(
     ) {
       // soft check only — codes vary by environment
     }
-    if (productType.toLowerCase().includes("car-parts")) {
-      if (!raw.carMake) errors.push("carMake required for car-parts");
-      if (!raw.carModel) errors.push("carModel required for car-parts");
-      if (!raw.carYearFrom) errors.push("carYearFrom required for car-parts");
+    const normalizedType = productType.toLowerCase().replace(/_/g, "-");
+    if (
+      normalizedType.includes("car-parts") ||
+      normalizedType.includes("spare-parts")
+    ) {
+      if (!raw.carMake) errors.push("carMake required for vehicle fitment");
+      if (!raw.carModel) errors.push("carModel required for vehicle fitment");
+      if (!raw.carYearFrom) errors.push("carYearFrom required for vehicle fitment");
     }
 
     const exists = itemCode ? existingItemCodes.has(itemCode) : false;
