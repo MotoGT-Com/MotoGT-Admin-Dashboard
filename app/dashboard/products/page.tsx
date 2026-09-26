@@ -32,16 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import {
   Plus,
   Search,
@@ -61,6 +52,7 @@ import {
   ArrowUp,
   ArrowDown,
   FileDown,
+  ChevronDown,
 } from "lucide-react";
 import { LoadingState } from "@/components/loading-state";
 import {
@@ -111,11 +103,7 @@ import {
   ProductType,
 } from "@/lib/services/product-type.service";
 import { useAuth } from "@/lib/context/auth-context";
-import { useCatalogScope } from "@/lib/context/catalog-scope-context";
-import {
-  matchesProductType,
-  productTypeRequiresFitment,
-} from "@/lib/domain/product-types";
+import { productTypeRequiresFitment } from "@/lib/domain/product-types";
 import { toast } from "sonner";
 import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
 
@@ -187,9 +175,6 @@ export default function ProductsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const catalogScope = useCatalogScope();
-  const productTypeQuery = searchParams.get("productType");
-  const lockedTypeKey = catalogScope?.code || productTypeQuery || null;
 
   // Store and Language state
   const [stores, setStores] = useState<any[]>([]);
@@ -242,19 +227,6 @@ export default function ProductsPage() {
 
   // Product types
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
-  const [productTypesReady, setProductTypesReady] = useState(false);
-
-  const scopedProductType = useMemo(() => {
-    if (!lockedTypeKey || productTypes.length === 0) return null;
-    return (
-      productTypes.find((pt) => matchesProductType(pt, lockedTypeKey)) || null
-    );
-  }, [lockedTypeKey, productTypes]);
-
-  const scopedProductTypeId = scopedProductType?.id ?? null;
-  const isTypeScoped = Boolean(lockedTypeKey);
-  const scopeTypeMissing =
-    isTypeScoped && productTypesReady && !scopedProductTypeId;
 
   // Car brands, models, and trims
   const [carBrands, setCarBrands] = useState<string[]>([]);
@@ -276,6 +248,8 @@ export default function ProductsPage() {
   const [selectedCarCompatibility, setSelectedCarCompatibility] = useState<
     Array<{ carId: string; yearFrom?: number; yearTo?: number | null }>
   >([]);
+  const [carPickerOpen, setCarPickerOpen] = useState(false);
+  const [carSearch, setCarSearch] = useState("");
 
   // Car compatibility management (edit existing product)
   const [compatibilities, setCompatibilities] = useState<
@@ -328,6 +302,12 @@ export default function ProductsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deleteProduct, setDeleteProduct] = useState<Product | null>(null);
+  const [pendingVariantDeleteId, setPendingVariantDeleteId] = useState<
+    string | null
+  >(null);
+  const [pendingImageRemoveId, setPendingImageRemoveId] = useState<
+    string | null
+  >(null);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importResults, setImportResults] = useState<{
@@ -425,43 +405,6 @@ export default function ProductsPage() {
             toast.error("Error", {
               description: "Failed to load product types",
             });
-          } finally {
-            setProductTypesReady(true);
-          }
-
-          try {
-            // Fetch categories
-            const fetchedCategories = await categoryService.listCategories({
-              storeId: fetchedStores[0].id,
-              languageId: fetchedLanguages[0].id,
-              isActive: true,
-              includeSubcategories: true,
-              limit: 100,
-            });
-
-            // Add name field to categories and subcategories for easy display
-            const categoriesWithNames = fetchedCategories.map((cat) => ({
-              ...cat,
-              name: categoryService.getCategoryName(
-                cat,
-                fetchedLanguages[0].code,
-              ),
-              // Also add names to subcategories
-              subcategories: cat.subcategories?.map((sub) => ({
-                ...sub,
-                name: categoryService.getCategoryName(
-                  sub,
-                  fetchedLanguages[0].code,
-                ),
-              })),
-            }));
-
-            setCategories(categoriesWithNames);
-          } catch (error) {
-            console.error("Failed to fetch categories:", error);
-            toast.error("Error", {
-              description: "Failed to load categories",
-            });
           }
         }
       } catch (error: any) {
@@ -489,7 +432,7 @@ export default function ProductsPage() {
             selectedLanguage.id,
           );
           handleOpenDialog(productToEdit);
-          // Clear the query parameter (keep path — spare-parts section or products)
+          // Clear the edit query parameter
           const params = new URLSearchParams(searchParams.toString());
           params.delete("edit");
           const qs = params.toString();
@@ -505,59 +448,43 @@ export default function ProductsPage() {
     }
   }, [searchParams, selectedStore, selectedLanguage]);
 
-  // Keep new-product form type locked to the section scope once it resolves.
+  // Load filter categories for the active product type filter
   useEffect(() => {
-    if (!isDialogOpen || editingProduct || !scopedProductTypeId) return;
-    setFormData((prev) =>
-      prev.productType === scopedProductTypeId
-        ? prev
-        : { ...prev, productType: scopedProductTypeId },
-    );
-  }, [isDialogOpen, editingProduct, scopedProductTypeId]);
-
-  // Lock product-type filter when scoped (Car Accessories / Spare Parts / ?productType=)
-  useEffect(() => {
-    if (!lockedTypeKey) return;
-
-    let cancelled = false;
-
-    const resolveScopedType = async () => {
-      const existing = productTypes.find((pt) =>
-        matchesProductType(pt, lockedTypeKey),
-      );
-      if (existing) {
-        setFilterProductType(existing.id);
-        setFilterCategories([]);
-        setFilterSubCategories([]);
-        return;
-      }
-
-      // Types list may omit the scope type (e.g. spare_parts before migration).
-      // Resolve via public code/slug endpoint before failing closed.
-      if (!productTypesReady) return;
+    const loadFilterCategories = async () => {
+      if (!selectedStore || !selectedLanguage) return;
 
       try {
-        const fetched = await productTypeService.getByCodeOrSlug(
-          lockedTypeKey,
-          selectedLanguage?.id,
-        );
-        if (cancelled || !fetched?.id) return;
-        setProductTypes((prev) =>
-          prev.some((p) => p.id === fetched.id) ? prev : [...prev, fetched],
-        );
-        setFilterProductType(fetched.id);
-        setFilterCategories([]);
-        setFilterSubCategories([]);
-      } catch {
-        // leave scopedProductTypeId null → fetchProducts fails closed
+        const typeId =
+          filterProductType !== "any" ? filterProductType : undefined;
+        const fetchedCategories = await categoryService.listCategories({
+          storeId: selectedStore.id,
+          languageId: selectedLanguage.id,
+          productTypeId: typeId,
+          isActive: true,
+          includeSubcategories: true,
+          limit: 100,
+        });
+
+        const categoriesWithNames = fetchedCategories.map((cat) => ({
+          ...cat,
+          name: categoryService.getCategoryName(cat, selectedLanguage.code),
+          subcategories: cat.subcategories?.map((sub) => ({
+            ...sub,
+            name: categoryService.getCategoryName(sub, selectedLanguage.code),
+          })),
+        }));
+
+        setCategories(categoriesWithNames);
+      } catch (error) {
+        console.error("Failed to fetch categories:", error);
+        toast.error("Error", {
+          description: "Failed to load categories",
+        });
       }
     };
 
-    resolveScopedType();
-    return () => {
-      cancelled = true;
-    };
-  }, [lockedTypeKey, productTypes, productTypesReady, selectedLanguage?.id]);
+    loadFilterCategories();
+  }, [selectedStore, selectedLanguage, filterProductType]);
 
   // Helper function to get car ID from brand/model
   const getCarIdFromBrandModel = (
@@ -681,18 +608,6 @@ export default function ProductsPage() {
   const fetchProducts = async () => {
     if (!selectedStore || !selectedLanguage) return;
 
-    // Scoped catalog sections must not fall back to "all products".
-    if (isTypeScoped) {
-      if (!productTypesReady) return;
-      if (!scopedProductTypeId) {
-        setProducts([]);
-        setFilteredAllProducts([]);
-        setTotalProducts(0);
-        setLoading(false);
-        return;
-      }
-    }
-
     try {
       setLoading(true);
 
@@ -724,11 +639,8 @@ export default function ProductsPage() {
         sortKey === "updatedAt" ||
         (filterCarTrim !== "any" && Boolean(singleBrand && singleModel));
 
-      const effectiveProductTypeId = isTypeScoped
-        ? scopedProductTypeId!
-        : filterProductType !== "any"
-          ? filterProductType
-          : undefined;
+      const effectiveProductTypeId =
+        filterProductType !== "any" ? filterProductType : undefined;
 
       const baseParams = {
         storeId: selectedStore.id,
@@ -834,9 +746,6 @@ export default function ProductsPage() {
     selectedLanguage,
     debouncedSearchQuery,
     filterProductType,
-    scopedProductTypeId,
-    productTypesReady,
-    isTypeScoped,
     filterCategories,
     filterSubCategories,
     filterCarBrands,
@@ -1095,13 +1004,18 @@ export default function ProductsPage() {
     size: "",
   });
 
-  /** Fitment from selected type, or from Car Accessories / Spare Parts section scope. */
+  /** Fitment based on the selected form product type. */
   const formProductTypeCode =
-    productTypes.find((pt) => pt.id === formData.productType)?.code ??
-    scopedProductType?.code ??
-    catalogScope?.code ??
-    null;
+    productTypes.find((pt) => pt.id === formData.productType)?.code ?? null;
   const formRequiresFitment = productTypeRequiresFitment(formProductTypeCode);
+
+  const filteredCompatibleCars = useMemo(() => {
+    const q = carSearch.trim().toLowerCase();
+    if (!q) return availableCars;
+    return availableCars.filter((car) =>
+      `${car.brand} ${car.model}`.toLowerCase().includes(q),
+    );
+  }, [availableCars, carSearch]);
 
   // Remove old vehicle makes filtering logic - will be handled by API
   // Categories and subcategories will come from API in future
@@ -1172,12 +1086,6 @@ export default function ProductsPage() {
   // Editing functionality will be added in next steps
 
   const handleOpenDialog = async (product?: Product) => {
-    if (!product && scopeTypeMissing) {
-      toast.error("Product type unavailable", {
-        description: `“${lockedTypeKey}” is not on this API yet. Create it under Product Types or run migration 083.`,
-      });
-      return;
-    }
     if (product) {
       let productToEdit = product;
 
@@ -1308,7 +1216,7 @@ export default function ProductsPage() {
         itemCode: "",
         name: "",
         sellingPrice: "",
-        productType: scopedProductTypeId || "",
+        productType: "",
         carMake: "",
         carModel: "",
         carYearFrom: "",
@@ -1346,6 +1254,8 @@ export default function ProductsPage() {
     setIsDialogOpen(false);
     setEditingProduct(null);
     setSelectedCarCompatibility([]);
+    setCarPickerOpen(false);
+    setCarSearch("");
     setIsComingSoon(false);
     setHasVariants(false);
     setVariants([]);
@@ -2104,26 +2014,12 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-        {!catalogScope ? (
-          <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-bold">
-              {scopedProductType
-                ? scopedProductType.translations?.find(
-                    (t) => t.languageCode === selectedLanguage?.code,
-                  )?.name ||
-                  scopedProductType.name ||
-                  "Products"
-                : "Products"}
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-              {isTypeScoped
-                ? "Manage products for this catalog type"
-                : "Manage your automotive accessories inventory"}
-            </p>
-          </div>
-        ) : (
-          <div className="min-w-0 flex-1" />
-        )}
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold">Products</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
+            Manage your automotive accessories inventory
+          </p>
+        </div>
         <div className="flex gap-2 flex-wrap">
           <Button
             variant="outline"
@@ -2146,16 +2042,7 @@ export default function ProductsPage() {
             <Upload size={18} />
             Import
           </Button>
-          <Button
-            className="gap-2"
-            onClick={() => handleOpenDialog()}
-            disabled={scopeTypeMissing}
-            title={
-              scopeTypeMissing
-                ? `Product type “${lockedTypeKey}” is not available yet`
-                : undefined
-            }
-          >
+          <Button className="gap-2" onClick={() => handleOpenDialog()}>
             <Plus size={18} />
             Add Product
           </Button>
@@ -2216,33 +2103,31 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {/* Product Type tabs — hidden when locked to Spare Parts (or other scope) */}
-        {!isTypeScoped ? (
-          <Tabs
-            value={filterProductType}
-            onValueChange={(value) => {
-              setFilterProductType(value);
-              setFilterCategories([]);
-              setFilterSubCategories([]);
-            }}
-          >
-            <TabsList className="h-auto flex-wrap">
-              <TabsTrigger value="any">All Types</TabsTrigger>
-              {productTypes
-                .filter((pt) => pt.isActive)
-                .sort((a, b) => a.sortOrder - b.sortOrder)
-                .map((type) => (
-                  <TabsTrigger key={type.id} value={type.id}>
-                    {type?.translations?.find(
-                      (t) => t.languageCode === selectedLanguage.code,
-                    )?.name ||
-                      type?.translations[0]?.name ||
-                      "Unnamed"}
-                  </TabsTrigger>
-                ))}
-            </TabsList>
-          </Tabs>
-        ) : null}
+        {/* Product Type tabs */}
+        <Tabs
+          value={filterProductType}
+          onValueChange={(value) => {
+            setFilterProductType(value);
+            setFilterCategories([]);
+            setFilterSubCategories([]);
+          }}
+        >
+          <TabsList className="h-auto flex-wrap">
+            <TabsTrigger value="any">All Types</TabsTrigger>
+            {productTypes
+              .filter((pt) => pt.isActive)
+              .sort((a, b) => a.sortOrder - b.sortOrder)
+              .map((type) => (
+                <TabsTrigger key={type.id} value={type.id}>
+                  {type?.translations?.find(
+                    (t) => t.languageCode === selectedLanguage.code,
+                  )?.name ||
+                    type?.translations[0]?.name ||
+                    "Unnamed"}
+                </TabsTrigger>
+              ))}
+          </TabsList>
+        </Tabs>
 
         <CompletenessQuickFilters
           active={completenessFilters}
@@ -2466,7 +2351,7 @@ export default function ProductsPage() {
             <Button
               variant="outline"
               onClick={() => {
-                if (!isTypeScoped) setFilterProductType("any");
+                setFilterProductType("any");
                 setFilterCategories([]);
                 setFilterSubCategories([]);
                 setFilterCarBrands([]);
@@ -2492,25 +2377,9 @@ export default function ProductsPage() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
           <div>
-            <CardTitle>
-              {catalogScope
-                ? `${catalogScope.label} (${totalProducts})`
-                : scopedProductType
-                  ? `${
-                      scopedProductType.translations?.find(
-                        (t) => t.languageCode === selectedLanguage?.code,
-                      )?.name ||
-                      scopedProductType.name ||
-                      "Products"
-                    } (${totalProducts})`
-                  : `All Products (${totalProducts})`}
-            </CardTitle>
+            <CardTitle>All Products ({totalProducts})</CardTitle>
             <CardDescription>
-              {scopeTypeMissing
-                ? `Product type “${lockedTypeKey}” is not available on this API yet. Deploy/run migration 083 for spare parts.`
-                : catalogScope
-                  ? `Products in ${catalogScope.label}`
-                  : "Manage your product catalog"}
+              Manage your product catalog
               {selectedIds.length > 0
                 ? ` · ${selectedIds.length} selected`
                 : ""}
@@ -2552,7 +2421,7 @@ export default function ProductsPage() {
                     variant="outline"
                     onClick={() => {
                       setSearchQuery("");
-                      if (!isTypeScoped) setFilterProductType("any");
+                      setFilterProductType("any");
                       setFilterCategories([]);
                       setFilterSubCategories([]);
                       setFilterCarBrands([]);
@@ -2564,10 +2433,7 @@ export default function ProductsPage() {
                     Clear Filters
                   </Button>
                 )}
-                <Button
-                  onClick={() => handleOpenDialog()}
-                  disabled={scopeTypeMissing}
-                >
+                <Button onClick={() => handleOpenDialog()}>
                   <Plus size={18} className="mr-2" />
                   Add Your First Product
                 </Button>
@@ -2903,13 +2769,12 @@ export default function ProductsPage() {
               <Label htmlFor="productType">Product Type *</Label>
               <Select
                 value={formData.productType || undefined}
-                disabled={isTypeScoped && !editingProduct}
                 onValueChange={(value: string) => {
                   const selectedType = productTypes.find(
                     (pt) => pt.id === value,
                   );
                   const requiresCars = productTypeRequiresFitment(
-                    selectedType?.code ?? catalogScope?.code,
+                    selectedType?.code,
                   );
 
                   setFormData({
@@ -2920,29 +2785,17 @@ export default function ProductsPage() {
                     carYearFrom: !requiresCars ? "" : formData.carYearFrom,
                     carYearTo: !requiresCars ? "" : formData.carYearTo,
                   });
-                  // Clear selected cars when changing to non-car-parts types
                   if (!requiresCars) {
                     setSelectedCarCompatibility([]);
                   }
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      isTypeScoped
-                        ? catalogScope?.label || "Section product type"
-                        : "Select product type"
-                    }
-                  />
+                  <SelectValue placeholder="Select product type" />
                 </SelectTrigger>
                 <SelectContent>
                   {productTypes
                     .filter((pt) => pt.isActive)
-                    .filter((pt) =>
-                      isTypeScoped && scopedProductTypeId
-                        ? pt.id === scopedProductTypeId
-                        : true,
-                    )
                     .sort((a, b) => a.sortOrder - b.sortOrder)
                     .map((type) => (
                       <SelectItem key={type.id} value={type.id}>
@@ -2954,16 +2807,13 @@ export default function ProductsPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {isTypeScoped
-                  ? `Locked to ${catalogScope?.label ?? lockedTypeKey}. `
-                  : ""}
                 {formRequiresFitment
                   ? "This product requires vehicle make, model, and year specifications."
                   : "This product does not require vehicle specifications."}
               </p>
             </div>
 
-            {/* Car Compatibility Selection - vehicle-fitment types / scoped sections */}
+            {/* Car Compatibility Selection - vehicle-fitment types */}
             {formRequiresFitment &&
               !editingProduct && (
                 <div className="space-y-3 border rounded-lg p-4 bg-accent/5">
@@ -3054,31 +2904,82 @@ export default function ProductsPage() {
                   {/* Add / replace single car */}
                   {selectedCarCompatibility.length === 0 ? (
                     <div className="relative">
-                      <Select
-                        value=""
-                        onValueChange={(carId) => {
-                          setSelectedCarCompatibility([
-                            { carId, yearFrom: undefined, yearTo: undefined },
-                          ]);
+                      <DropdownMenu
+                        open={carPickerOpen}
+                        onOpenChange={(open) => {
+                          setCarPickerOpen(open);
+                          if (!open) setCarSearch("");
                         }}
                       >
-                        <SelectTrigger>
-                          <SelectValue placeholder="+ Select compatible car" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableCars.length === 0 ? (
-                            <div className="p-2 text-center text-muted-foreground text-sm">
-                              No cars available
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-between font-normal"
+                          >
+                            <span className="truncate">
+                              + Select compatible car
+                            </span>
+                            <ChevronDown
+                              size={16}
+                              className="opacity-60 shrink-0"
+                            />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="start"
+                          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[280px] p-0"
+                        >
+                          <div className="sticky top-0 z-10 border-b bg-popover p-2">
+                            <div className="relative">
+                              <Search
+                                size={14}
+                                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                              />
+                              <Input
+                                value={carSearch}
+                                onChange={(e) => setCarSearch(e.target.value)}
+                                onKeyDown={(e) => e.stopPropagation()}
+                                placeholder="Search make or model…"
+                                className="h-8 pl-8"
+                                autoFocus
+                              />
                             </div>
-                          ) : (
-                            availableCars.map((car) => (
-                              <SelectItem key={car.id} value={car.id}>
-                                {car.brand} {car.model}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
+                          </div>
+                          <div className="max-h-56 overflow-y-auto p-1">
+                            {availableCars.length === 0 ? (
+                              <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+                                No cars available
+                              </p>
+                            ) : filteredCompatibleCars.length === 0 ? (
+                              <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+                                No cars match “{carSearch.trim()}”
+                              </p>
+                            ) : (
+                              filteredCompatibleCars.map((car) => (
+                                <button
+                                  key={car.id}
+                                  type="button"
+                                  className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent"
+                                  onClick={() => {
+                                    setSelectedCarCompatibility([
+                                      {
+                                        carId: car.id,
+                                        yearFrom: undefined,
+                                        yearTo: undefined,
+                                      },
+                                    ]);
+                                    setCarPickerOpen(false);
+                                    setCarSearch("");
+                                  }}
+                                >
+                                  {car.brand} {car.model}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   ) : null}
 
@@ -3493,7 +3394,7 @@ export default function ProductsPage() {
                                       variant="ghost"
                                       size="sm"
                                       onClick={() =>
-                                        handleDeleteVariant(variant.id)
+                                        setPendingVariantDeleteId(variant.id)
                                       }
                                     >
                                       <Trash2 className="h-3 w-3" />
@@ -3601,7 +3502,7 @@ export default function ProductsPage() {
                             <Button
                               variant="destructive"
                               size="sm"
-                              onClick={() => handleRemoveImage(image.id)}
+                              onClick={() => setPendingImageRemoveId(image.id)}
                               title="Remove Image"
                             >
                               <X size={14} />
@@ -4089,29 +3990,50 @@ export default function ProductsPage() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog
+      <ConfirmDeleteDialog
         open={!!deleteProduct}
-        onOpenChange={() => setDeleteProduct(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Product</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "{deleteProduct?.name}"? This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteProduct}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={(open) => {
+          if (!open) setDeleteProduct(null);
+        }}
+        title="Delete product?"
+        description={`Are you sure you want to delete "${deleteProduct?.name}"? This action cannot be undone.`}
+        onConfirm={async () => {
+          await handleDeleteProduct();
+          setDeleteProduct(null);
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={!!pendingVariantDeleteId}
+        onOpenChange={(open) => {
+          if (!open) setPendingVariantDeleteId(null);
+        }}
+        title="Remove variant?"
+        description="Remove this variant from the product form? You still need to save the product for this to take effect."
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingVariantDeleteId) {
+            handleDeleteVariant(pendingVariantDeleteId);
+          }
+          setPendingVariantDeleteId(null);
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={!!pendingImageRemoveId}
+        onOpenChange={(open) => {
+          if (!open) setPendingImageRemoveId(null);
+        }}
+        title="Remove image?"
+        description="Remove this image from the product form? You still need to save the product for this to take effect."
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingImageRemoveId) {
+            handleRemoveImage(pendingImageRemoveId);
+          }
+          setPendingImageRemoveId(null);
+        }}
+      />
     </div>
   );
 }

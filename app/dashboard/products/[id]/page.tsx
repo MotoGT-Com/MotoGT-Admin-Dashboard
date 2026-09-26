@@ -65,16 +65,7 @@ import { uploadService } from "@/lib/services/upload.service";
 import { categoryService, Category } from "@/lib/services/category.service";
 import { toast } from "sonner";
 import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ProductCarTrimsManager } from "@/components/product-car-trims-manager";
 
 const COMING_SOON_STOCK_QUANTITY = 1000000;
@@ -87,6 +78,11 @@ export default function ProductDetailPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingImageDelete, setPendingImageDelete] = useState<{
+    url: string;
+    type: "main" | "secondary" | "gallery";
+  } | null>(null);
+  const [deletingImage, setDeletingImage] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<any | null>(null);
   const [uploadingImage, setUploadingImage] = useState<string | null>(null); // 'main', 'secondary', or 'gallery'
   const [isEditing, setIsEditing] = useState(false);
@@ -600,6 +596,23 @@ export default function ProductDetailPage() {
       toast.error("Error", {
         description: error.message || "Failed to remove image",
       });
+      throw error;
+    }
+  };
+
+  const confirmPendingImageDelete = async () => {
+    if (!pendingImageDelete) return;
+    setDeletingImage(true);
+    try {
+      await handleDeleteImage(
+        pendingImageDelete.url,
+        pendingImageDelete.type,
+      );
+      setPendingImageDelete(null);
+    } catch {
+      // Error toast already shown in handleDeleteImage
+    } finally {
+      setDeletingImage(false);
     }
   };
 
@@ -796,7 +809,10 @@ export default function ProductDetailPage() {
                       size="sm"
                       variant="destructive"
                       onClick={() =>
-                        handleDeleteImage(product.mainImage!, "main")
+                        setPendingImageDelete({
+                          url: product.mainImage!,
+                          type: "main",
+                        })
                       }
                     >
                       <X className="h-4 w-4 mr-1" />
@@ -846,7 +862,10 @@ export default function ProductDetailPage() {
                       size="sm"
                       variant="destructive"
                       onClick={() =>
-                        handleDeleteImage(product.secondaryImage!, "secondary")
+                        setPendingImageDelete({
+                          url: product.secondaryImage!,
+                          type: "secondary",
+                        })
                       }
                     >
                       <X className="h-4 w-4 mr-1" />
@@ -919,7 +938,12 @@ export default function ProductDetailPage() {
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => handleDeleteImage(img, "gallery")}
+                          onClick={() =>
+                            setPendingImageDelete({
+                              url: img,
+                              type: "gallery",
+                            })
+                          }
                           className="text-xs"
                         >
                           <X className="h-3 w-3" />
@@ -1600,26 +1624,34 @@ export default function ProductDetailPage() {
       />
 
       {/* Delete Product Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the product "{product.name}". This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete product?"
+        description={`This will permanently delete the product "${product.name}". This action cannot be undone.`}
+        onConfirm={async () => {
+          await handleDelete();
+          setDeleteDialogOpen(false);
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={!!pendingImageDelete}
+        onOpenChange={(open) => {
+          if (!open) setPendingImageDelete(null);
+        }}
+        title="Remove image?"
+        description={
+          pendingImageDelete?.type === "main"
+            ? "Remove the primary product image? This will be saved immediately."
+            : pendingImageDelete?.type === "secondary"
+              ? "Remove the secondary product image? This will be saved immediately."
+              : "Remove this gallery image? This will be saved immediately."
+        }
+        confirmLabel="Remove"
+        confirming={deletingImage}
+        onConfirm={confirmPendingImageDelete}
+      />
     </div>
   );
 }

@@ -32,8 +32,6 @@ import {
   Zap,
   Globe,
   Mail,
-  Wrench,
-  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { STOREFRONT_BASE_URL } from "@/lib/products/catalog-helpers";
@@ -76,16 +74,6 @@ const navigationGroups: NavGroup[] = [
     label: "Store Management",
     items: [
       {
-        icon: <Sparkles size={20} />,
-        label: "Car Accessories",
-        href: "/dashboard/car-accessories",
-      },
-      {
-        icon: <Wrench size={20} />,
-        label: "Spare Parts",
-        href: "/dashboard/spare-parts",
-      },
-      {
         icon: <Layers size={20} />,
         label: "Product Types",
         href: "/dashboard/product-types",
@@ -97,12 +85,12 @@ const navigationGroups: NavGroup[] = [
       },
       {
         icon: <Tag size={20} />,
-        label: "All Products",
+        label: "Products",
         href: "/dashboard/products",
       },
       {
         icon: <FolderTree size={20} />,
-        label: "All Categories",
+        label: "Categories",
         href: "/dashboard/categories",
       },
       { icon: <Car size={20} />, label: "Cars", href: "/dashboard/cars" },

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Plus, Trash2, X } from 'lucide-react'
 
 export function AddCategoryDialog({ 
@@ -27,6 +28,8 @@ export function AddCategoryDialog({
   const [newSubcategoryImage, setNewSubcategoryImage] = useState(null)
   const [newSubcategoryImagePreview, setNewSubcategoryImagePreview] = useState("")
   const [selectedParentId, setSelectedParentId] = useState("")
+  const [pendingSubcategoryRemoveId, setPendingSubcategoryRemoveId] = useState(null)
+  const [pendingImageClear, setPendingImageClear] = useState(null) // 'parent' | 'sub' | 'newSub'
 
   const isEditing = editingCategory && editingParentId
   const isEditingParent = editingCategory && !editingParentId
@@ -142,6 +145,7 @@ export function AddCategoryDialog({
     : "Create a new parent category or add a subcategory to an existing parent"
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(newOpen) => {
       if (!newOpen) {
         resetForm()
@@ -190,10 +194,7 @@ export function AddCategoryDialog({
                 {parentImagePreview && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setParentImage(null)
-                      setParentImagePreview("")
-                    }}
+                    onClick={() => setPendingImageClear("parent")}
                     className="h-10 w-10 border rounded-md flex items-center justify-center hover:bg-destructive/10 text-destructive"
                   >
                     <X size={18} />
@@ -246,10 +247,7 @@ export function AddCategoryDialog({
                     {newSubcategoryImagePreview && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setNewSubcategoryImage(null)
-                          setNewSubcategoryImagePreview("")
-                        }}
+                        onClick={() => setPendingImageClear("sub")}
                         className="h-10 w-10 border rounded-md flex items-center justify-center hover:bg-destructive/10 text-destructive"
                       >
                         <X size={18} />
@@ -277,7 +275,7 @@ export function AddCategoryDialog({
                           variant="ghost"
                           size="sm"
                           className="h-6 w-6 p-0 hover:text-destructive"
-                          onClick={() => handleRemoveSubcategory(sub.id)}
+                          onClick={() => setPendingSubcategoryRemoveId(sub.id)}
                         >
                           <Trash2 size={14} />
                         </Button>
@@ -343,10 +341,7 @@ export function AddCategoryDialog({
                 {newSubcategoryImagePreview && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setNewSubcategoryImage(null)
-                      setNewSubcategoryImagePreview("")
-                    }}
+                    onClick={() => setPendingImageClear("newSub")}
                     className="h-10 w-10 border rounded-md flex items-center justify-center hover:bg-destructive/10 text-destructive"
                   >
                     <X size={18} />
@@ -373,5 +368,42 @@ export function AddCategoryDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      <ConfirmDeleteDialog
+        open={pendingSubcategoryRemoveId != null}
+        onOpenChange={(next) => {
+          if (!next) setPendingSubcategoryRemoveId(null)
+        }}
+        title="Remove subcategory?"
+        description="Remove this subcategory from the form?"
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingSubcategoryRemoveId != null) {
+            handleRemoveSubcategory(pendingSubcategoryRemoveId)
+          }
+          setPendingSubcategoryRemoveId(null)
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={pendingImageClear != null}
+        onOpenChange={(next) => {
+          if (!next) setPendingImageClear(null)
+        }}
+        title="Remove image?"
+        description="Remove this image from the form?"
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingImageClear === "parent") {
+            setParentImage(null)
+            setParentImagePreview("")
+          } else {
+            setNewSubcategoryImage(null)
+            setNewSubcategoryImagePreview("")
+          }
+          setPendingImageClear(null)
+        }}
+      />
+    </>
   )
 }

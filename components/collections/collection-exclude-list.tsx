@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import type { CollectionProduct } from "@/lib/domain/collections";
 
 interface CollectionExcludeListProps {
@@ -15,6 +17,10 @@ export function CollectionExcludeList({
   onRemove,
   onAddClick,
 }: CollectionExcludeListProps) {
+  const [pendingRemove, setPendingRemove] = useState<CollectionProduct | null>(
+    null,
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -46,7 +52,7 @@ export function CollectionExcludeList({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => onRemove(product.id)}
+                onClick={() => setPendingRemove(product)}
                 aria-label={`Stop excluding ${product.name}`}
               >
                 <X size={14} />
@@ -55,6 +61,22 @@ export function CollectionExcludeList({
           ))}
         </ul>
       )}
+
+      <ConfirmDeleteDialog
+        open={!!pendingRemove}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+        title="Remove exclusion?"
+        description={`Stop excluding "${pendingRemove?.name ?? "this product"}" from the collection?`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingRemove) {
+            onRemove(pendingRemove.id);
+          }
+          setPendingRemove(null);
+        }}
+      />
     </div>
   );
 }

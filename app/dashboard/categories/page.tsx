@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import {
   Plus,
   ChevronDown,
@@ -50,9 +50,6 @@ import {
 } from "@/lib/services/product-type.service";
 import { settingsService } from "@/lib/services/settings.service";
 import { uploadService } from "@/lib/services/upload.service";
-import { useAuth } from "@/lib/context/auth-context";
-import { useCatalogScope } from "@/lib/context/catalog-scope-context";
-import { matchesProductType } from "@/lib/domain/product-types";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
 import { getEnglishLanguageId, getArabicLanguageId } from "@/lib/utils";
@@ -62,22 +59,6 @@ interface CategoryWithExpanded extends Category {
 }
 
 export default function CategoriesPage() {
-  return (
-    <Suspense
-      fallback={<LoadingState variant="full" label="Loading categories…" />}
-    >
-      <CategoriesPageContent />
-    </Suspense>
-  );
-}
-
-function CategoriesPageContent() {
-  const { user } = useAuth();
-  const catalogScope = useCatalogScope();
-  const searchParams = useSearchParams();
-  const productTypeQuery = searchParams.get("productType");
-  const lockedTypeKey = catalogScope?.code || productTypeQuery || null;
-
   // Store and Language state
   const [stores, setStores] = useState<any[]>([]);
   const [languages, setLanguages] = useState<any[]>([]);
@@ -94,22 +75,15 @@ function CategoriesPageContent() {
   // Filter state
   const [filterProductTypeId, setFilterProductTypeId] = useState<string>("all");
 
-  const scopedProductType = useMemo(() => {
-    if (!lockedTypeKey || productTypes.length === 0) return null;
-    return (
-      productTypes.find((pt) => matchesProductType(pt, lockedTypeKey)) || null
-    );
-  }, [lockedTypeKey, productTypes]);
-
-  const scopedProductTypeId = scopedProductType?.id ?? null;
-  const isTypeScoped = Boolean(lockedTypeKey);
-
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     category: Category;
   } | null>(null);
+  const [pendingImageRemove, setPendingImageRemove] = useState(false);
+  const [pendingSubcategoryRemoveIndex, setPendingSubcategoryRemoveIndex] =
+    useState<number | null>(null);
   const [productTypeWarning, setProductTypeWarning] = useState<{
     category: any;
     onConfirm: () => void;
@@ -189,13 +163,6 @@ function CategoriesPageContent() {
     loadProductTypes();
   }, [selectedLanguage]);
 
-  // Lock type filter when scoped to Spare Parts (or ?productType=)
-  useEffect(() => {
-    if (scopedProductTypeId) {
-      setFilterProductTypeId(scopedProductTypeId);
-    }
-  }, [scopedProductTypeId]);
-
   // Load categories
   useEffect(() => {
     const loadCategories = async () => {
@@ -243,7 +210,7 @@ function CategoriesPageContent() {
       nameAr: "",
       description: "",
       descriptionAr: "",
-      productTypeId: scopedProductTypeId || "",
+      productTypeId: "",
       parentId: "none",
       image: "",
       sortOrder: 1,
@@ -255,32 +222,62 @@ function CategoriesPageContent() {
     setDialogOpen(true);
   };
 
-  const handleOpenEditDialog = (category: Category) => {
-    setEditingCategory(category);
+  const handleOpenEditDialog = async (category: Category) => {
+    if (!selectedLanguage) {
+      toast.error("Please select a language");
+      return;
+    }
 
-    // Extract English and Arabic translations
-    const englishTranslation = category.translations?.find(
-      (t) => t.languageCode === "en",
-    );
-    const arabicTranslation = category.translations?.find(
-      (t) => t.languageCode === "ar",
-    );
+    try {
+      const full = await categoryService.getCategoryByIdAdmin(
+        category.id,
+        selectedLanguage.id,
+      );
 
-    setFormData({
-      name: englishTranslation?.name || "",
-      nameAr: arabicTranslation?.name || "",
-      description: englishTranslation?.description || "",
-      descriptionAr: arabicTranslation?.description || "",
-      productTypeId: category.productTypeId || "",
-      parentId: category.parentId || "none",
-      image: category.categoryImage || "",
-      sortOrder: category.sortOrder || 1,
-      isActive: category.isActive,
-    });
-    setImagePreview(category.categoryImage || "");
-    setImageFile(null);
-    setSubcategories([{ name: "", sortOrder: 1 }]);
-    setDialogOpen(true);
+      setEditingCategory(full);
+
+      const englishTranslation = full.translations?.find(
+        (t) => t.languageCode === "en",
+      );
+      const arabicTranslation = full.translations?.find(
+        (t) => t.languageCode === "ar",
+      );
+
+      const image =
+        full.categoryImage ||
+        (full as Category & { imageUrl?: string | null }).imageUrl ||
+        "";
+
+      const parent = categories.find(
+        (c) => c.id === (full.parentId || category.parentId),
+      );
+      const productTypeId =
+        full.productTypeId ||
+        category.productTypeId ||
+        parent?.productTypeId ||
+        "";
+
+      setFormData({
+        name:
+          englishTranslation?.name ||
+          (full as Category & { name?: string }).name ||
+          "",
+        nameAr: arabicTranslation?.name || "",
+        description: englishTranslation?.description || "",
+        descriptionAr: arabicTranslation?.description || "",
+        productTypeId,
+        parentId: full.parentId || category.parentId || "none",
+        image,
+        sortOrder: full.sortOrder || 1,
+        isActive: full.isActive ?? true,
+      });
+      setImagePreview(image);
+      setImageFile(null);
+      setSubcategories([{ name: "", sortOrder: 1 }]);
+      setDialogOpen(true);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load category for editing");
+    }
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -500,19 +497,18 @@ function CategoriesPageContent() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-        {!catalogScope ? (
-          <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
-              Categories
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage your product categories and subcategories
-            </p>
-          </div>
-        ) : (
-          <div className="min-w-0 flex-1" />
-        )}
-        <Button onClick={handleOpenAddDialog} className="gap-2 w-full sm:w-auto shrink-0">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
+            Categories
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage your product categories and subcategories
+          </p>
+        </div>
+        <Button
+          onClick={handleOpenAddDialog}
+          className="gap-2 w-full sm:w-auto shrink-0"
+        >
           <Plus size={18} />
           Add Category
         </Button>
@@ -564,33 +560,31 @@ function CategoriesPageContent() {
           </Select>
         </div>
 
-        {!isTypeScoped ? (
-          <div className="w-64">
-            <Label>Filter by Product Type</Label>
-            <Select
-              value={filterProductTypeId}
-              onValueChange={setFilterProductTypeId}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="All Product Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Product Types</SelectItem>
-                {Array.isArray(productTypes) &&
-                  productTypes
-                    .filter((pt) => pt.isActive)
-                    .sort((a, b) => a.sortOrder - b.sortOrder)
-                    .map((pt) => (
-                      <SelectItem key={pt.id} value={pt.id}>
-                        {pt.translations?.find(
-                          (t) => t.languageCode === selectedLanguage?.code,
-                        )?.name || pt.name}
-                      </SelectItem>
-                    ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
+        <div className="w-64">
+          <Label>Filter by Product Type</Label>
+          <Select
+            value={filterProductTypeId}
+            onValueChange={setFilterProductTypeId}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="All Product Types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Product Types</SelectItem>
+              {Array.isArray(productTypes) &&
+                productTypes
+                  .filter((pt) => pt.isActive)
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((pt) => (
+                    <SelectItem key={pt.id} value={pt.id}>
+                      {pt.translations?.find(
+                        (t) => t.languageCode === selectedLanguage?.code,
+                      )?.name || pt.name}
+                    </SelectItem>
+                  ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Statistics */}
@@ -712,11 +706,56 @@ function CategoriesPageContent() {
                             <span className="text-foreground text-sm flex-1">
                               {getCategoryName(subcategory)}
                             </span>
-                            {subcategory.productCount !== undefined && (
+                            {(subcategory.productCount !== undefined ||
+                              subcategory.productsCount !== undefined) && (
                               <Badge variant="outline" className="text-xs">
-                                {subcategory.productCount} products
+                                {subcategory.productCount ??
+                                  subcategory.productsCount}{" "}
+                                products
                               </Badge>
                             )}
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0"
+                                onClick={() =>
+                                  void handleOpenEditDialog({
+                                    ...subcategory,
+                                    parentId: category.id,
+                                    productTypeId:
+                                      subcategory.productTypeId ||
+                                      category.productTypeId,
+                                    storeId:
+                                      subcategory.storeId || category.storeId,
+                                    isActive: subcategory.isActive ?? true,
+                                  })
+                                }
+                              >
+                                <Edit2 size={14} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 hover:text-destructive"
+                                onClick={() =>
+                                  setDeleteConfirm({
+                                    category: {
+                                      ...subcategory,
+                                      parentId: category.id,
+                                      productTypeId:
+                                        subcategory.productTypeId ||
+                                        category.productTypeId,
+                                      storeId:
+                                        subcategory.storeId || category.storeId,
+                                      isActive: subcategory.isActive ?? true,
+                                    },
+                                  })
+                                }
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -829,8 +868,7 @@ function CategoriesPageContent() {
                   Product Type <span className="text-destructive">*</span>
                 </Label>
                 <Select
-                  value={formData.productTypeId}
-                  disabled={isTypeScoped && !editingCategory}
+                  value={formData.productTypeId || undefined}
                   onValueChange={(value) =>
                     setFormData({ ...formData, productTypeId: value })
                   }
@@ -847,11 +885,6 @@ function CategoriesPageContent() {
                       Array.isArray(productTypes) &&
                       productTypes
                         .filter((pt) => pt.isActive)
-                        .filter((pt) =>
-                          isTypeScoped && scopedProductTypeId
-                            ? pt.id === scopedProductTypeId
-                            : true,
-                        )
                         .sort((a, b) => a.sortOrder - b.sortOrder)
                         .map((pt) => (
                           <SelectItem key={pt.id} value={pt.id}>
@@ -904,7 +937,7 @@ function CategoriesPageContent() {
                 {imagePreview && (
                   <button
                     type="button"
-                    onClick={handleRemoveImage}
+                    onClick={() => setPendingImageRemove(true)}
                     className="h-10 w-10 border rounded-md flex items-center justify-center hover:bg-destructive/10 text-destructive"
                   >
                     <X size={18} />
@@ -994,7 +1027,9 @@ function CategoriesPageContent() {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveSubcategory(index)}
+                          onClick={() =>
+                            setPendingSubcategoryRemoveIndex(index)
+                          }
                           className="h-10 w-10 p-0 hover:text-destructive"
                         >
                           <X size={16} />
@@ -1040,30 +1075,48 @@ function CategoriesPageContent() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog
+      <ConfirmDeleteDialog
         open={!!deleteConfirm}
-        onOpenChange={() => setDeleteConfirm(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Category</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "
-              {deleteConfirm && getCategoryName(deleteConfirm.category)}"? This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteCategory}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={(open) => {
+          if (!open) setDeleteConfirm(null);
+        }}
+        title="Delete category?"
+        description={`Are you sure you want to delete "${
+          deleteConfirm ? getCategoryName(deleteConfirm.category) : ""
+        }"? This action cannot be undone.`}
+        onConfirm={async () => {
+          await handleDeleteCategory();
+          setDeleteConfirm(null);
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={pendingImageRemove}
+        onOpenChange={setPendingImageRemove}
+        title="Remove image?"
+        description="Remove this category image from the form?"
+        confirmLabel="Remove"
+        onConfirm={() => {
+          handleRemoveImage();
+          setPendingImageRemove(false);
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={pendingSubcategoryRemoveIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingSubcategoryRemoveIndex(null);
+        }}
+        title="Remove subcategory?"
+        description="Remove this subcategory row from the form?"
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingSubcategoryRemoveIndex !== null) {
+            handleRemoveSubcategory(pendingSubcategoryRemoveIndex);
+          }
+          setPendingSubcategoryRemoveIndex(null);
+        }}
+      />
 
       {/* Product Type Warning Dialog */}
       <AlertDialog

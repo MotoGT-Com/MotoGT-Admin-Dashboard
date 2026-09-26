@@ -29,6 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import {
   Plus,
   ChevronDown,
@@ -66,6 +67,7 @@ export default function CarsPage() {
   // Dialog states
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [pendingImageRemove, setPendingImageRemove] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Form states
@@ -913,7 +915,7 @@ export default function CarsPage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={handleClearImage}
+                        onClick={() => setPendingImageRemove(true)}
                       >
                         Remove
                       </Button>
@@ -1094,7 +1096,7 @@ export default function CarsPage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={handleClearImage}
+                        onClick={() => setPendingImageRemove(true)}
                       >
                         Remove
                       </Button>
@@ -1283,6 +1285,18 @@ export default function CarsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ConfirmDeleteDialog
+        open={pendingImageRemove}
+        onOpenChange={setPendingImageRemove}
+        title="Remove image?"
+        description="Remove this car image from the form?"
+        confirmLabel="Remove"
+        onConfirm={() => {
+          handleClearImage();
+          setPendingImageRemove(false);
+        }}
+      />
     </div>
   );
 }

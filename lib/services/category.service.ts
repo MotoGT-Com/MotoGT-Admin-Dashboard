@@ -197,10 +197,19 @@ class CategoryService {
   async getCategoryByIdAdmin(categoryId: string, languageId?: string): Promise<Category> {
     try {
       const response = await apiClient.get<any>(`/admin/categories/${categoryId}${languageId ? `?languageId=${languageId}` : ''}`);
-      return response.data.data;
+      const data = response.data.data;
+      return {
+        ...data,
+        categoryImage: data.categoryImage ?? data.imageUrl ?? null,
+      };
     } catch (error: any) {
       console.error('Get category admin error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to fetch category details');
+      const err = error.response?.data?.error;
+      const message =
+        typeof err === 'string'
+          ? err
+          : err?.message || 'Failed to fetch category details';
+      throw new Error(message);
     }
   }
 
@@ -228,7 +237,12 @@ class CategoryService {
       return response.data.data;
     } catch (error: any) {
       console.error('Update category error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to update category');
+      const err = error.response?.data?.error;
+      const message =
+        typeof err === 'string'
+          ? err
+          : err?.message || 'Failed to update category';
+      throw new Error(message);
     }
   }
 
@@ -241,7 +255,12 @@ class CategoryService {
       await apiClient.delete(`/admin/categories/${categoryId}`);
     } catch (error: any) {
       console.error('Delete category error:', error);
-      throw new Error(error.response?.data?.error?.message || 'Failed to delete category');
+      const err = error.response?.data?.error;
+      const message =
+        typeof err === 'string'
+          ? err
+          : err?.message || 'Failed to delete category';
+      throw new Error(message);
     }
   }
 }

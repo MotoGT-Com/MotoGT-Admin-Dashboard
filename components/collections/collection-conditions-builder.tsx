@@ -5,6 +5,7 @@ import { Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import {
   Select,
   SelectContent,
@@ -124,6 +125,8 @@ export function CollectionConditionsBuilder({
   loadingOptions,
   onChange,
 }: CollectionConditionsBuilderProps) {
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+
   const update = (id: string, patch: Partial<CollectionCondition>) => {
     const updated = conditions.map((c) => {
       if (c.id !== id) return c;
@@ -315,9 +318,7 @@ export function CollectionConditionsBuilder({
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:text-destructive gap-1"
-                    onClick={() =>
-                      onChange(conditions.filter((c) => c.id !== condition.id))
-                    }
+                    onClick={() => setPendingRemoveId(condition.id)}
                   >
                     <Trash2 size={14} />
                     Remove
@@ -328,6 +329,22 @@ export function CollectionConditionsBuilder({
           })}
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={!!pendingRemoveId}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemoveId(null);
+        }}
+        title="Remove condition?"
+        description="Remove this condition from the automated collection rules?"
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingRemoveId) {
+            onChange(conditions.filter((c) => c.id !== pendingRemoveId));
+          }
+          setPendingRemoveId(null);
+        }}
+      />
     </div>
   );
 }

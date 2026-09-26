@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { ArrowDown, ArrowUp, LayoutGrid, List, Package, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import type { CollectionProduct } from "@/lib/domain/collections";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +32,9 @@ export function CollectionProductsPanel({
   onMove,
   onRemove,
 }: CollectionProductsPanelProps) {
+  const [pendingRemove, setPendingRemove] = useState<CollectionProduct | null>(
+    null,
+  );
   const q = search.trim().toLowerCase();
   const visible = q
     ? products.filter(
@@ -128,7 +133,7 @@ export function CollectionProductsPanel({
                   variant="ghost"
                   size="icon-sm"
                   className="absolute top-2 right-2 opacity-0 group-hover:opacity-100"
-                  onClick={() => onRemove(product.id)}
+                  onClick={() => setPendingRemove(product)}
                   aria-label={`Remove ${product.name}`}
                 >
                   <X size={14} />
@@ -212,7 +217,7 @@ export function CollectionProductsPanel({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => onRemove(product.id)}
+                    onClick={() => setPendingRemove(product)}
                     aria-label={`Remove ${product.name}`}
                   >
                     <X size={14} />
@@ -223,6 +228,22 @@ export function CollectionProductsPanel({
           })}
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={!!pendingRemove}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+        title="Remove product?"
+        description={`Remove "${pendingRemove?.name ?? "this product"}" from the collection?`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingRemove && onRemove) {
+            onRemove(pendingRemove.id);
+          }
+          setPendingRemove(null);
+        }}
+      />
     </div>
   );
 }

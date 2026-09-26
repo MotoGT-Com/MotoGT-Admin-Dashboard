@@ -35,6 +35,7 @@ import {
   type StepState,
 } from "@/components/in-store/step-indicator";
 import { ProductPicker } from "@/components/in-store/product-picker";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { PhoneInput, phoneValueToString, isPhoneReady, type PhoneValue } from "@/components/ui/phone-input";
 import {
   DEFAULT_DIAL,
@@ -213,6 +214,9 @@ export function ChannelOrderForm({
 
   // --- Step 2: Cart (lines come from the API-backed product picker) ---
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [pendingCartRemove, setPendingCartRemove] = useState<CartLine | null>(
+    null,
+  );
 
   const addToCart = (line: CartLine) => {
     let toastMessage: string | null = null;
@@ -691,7 +695,7 @@ export function ChannelOrderForm({
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            onClick={() => removeFromCart(line.productId)}
+                            onClick={() => setPendingCartRemove(line)}
                             className="text-muted-foreground hover:text-destructive shrink-0 -mt-1 -mr-1"
                           >
                             <Trash2 size={14} />
@@ -918,6 +922,22 @@ export function ChannelOrderForm({
           )}
         </div>
       </div>
+
+      <ConfirmDeleteDialog
+        open={!!pendingCartRemove}
+        onOpenChange={(open) => {
+          if (!open) setPendingCartRemove(null);
+        }}
+        title="Remove item?"
+        description={`Remove "${pendingCartRemove?.name ?? "this item"}" from the order?`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (pendingCartRemove) {
+            removeFromCart(pendingCartRemove.productId);
+          }
+          setPendingCartRemove(null);
+        }}
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { uploadService } from "@/lib/services/upload.service";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import type { CollectionTranslation } from "@/lib/domain/collections";
 import { cn } from "@/lib/utils";
 
@@ -76,6 +77,7 @@ export function CollectionDetailsForm({
 }: CollectionDetailsFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [pendingImageRemove, setPendingImageRemove] = useState(false);
   const en = getTranslation(translations, "en");
 
   const handlePickImage = () => {
@@ -106,11 +108,6 @@ export function CollectionDetailsForm({
     } finally {
       setUploading(false);
     }
-  };
-
-  const handleRemoveImage = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onImageUrlChange(null);
   };
 
   return (
@@ -160,7 +157,10 @@ export function CollectionDetailsForm({
               variant="secondary"
               size="icon-sm"
               className="absolute -top-2 -right-2 h-7 w-7 rounded-full shadow-sm border border-border"
-              onClick={handleRemoveImage}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPendingImageRemove(true);
+              }}
               aria-label="Remove image"
             >
               <X size={14} />
@@ -224,6 +224,18 @@ export function CollectionDetailsForm({
           />
         </div>
       </div>
+
+      <ConfirmDeleteDialog
+        open={pendingImageRemove}
+        onOpenChange={setPendingImageRemove}
+        title="Remove image?"
+        description="Remove this collection image?"
+        confirmLabel="Remove"
+        onConfirm={() => {
+          onImageUrlChange(null);
+          setPendingImageRemove(false);
+        }}
+      />
     </div>
   );
 }
