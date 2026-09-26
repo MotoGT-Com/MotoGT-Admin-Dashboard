@@ -242,6 +242,7 @@ export default function ProductsPage() {
 
   // Product types
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
+  const [productTypesReady, setProductTypesReady] = useState(false);
 
   const scopedProductType = useMemo(() => {
     if (!lockedTypeKey || productTypes.length === 0) return null;
@@ -252,6 +253,8 @@ export default function ProductsPage() {
 
   const scopedProductTypeId = scopedProductType?.id ?? null;
   const isTypeScoped = Boolean(lockedTypeKey);
+  const scopeTypeMissing =
+    isTypeScoped && productTypesReady && !scopedProductTypeId;
 
   // Car brands, models, and trims
   const [carBrands, setCarBrands] = useState<string[]>([]);
@@ -422,6 +425,8 @@ export default function ProductsPage() {
             toast.error("Error", {
               description: "Failed to load product types",
             });
+          } finally {
+            setProductTypesReady(true);
           }
 
           try {
@@ -500,14 +505,59 @@ export default function ProductsPage() {
     }
   }, [searchParams, selectedStore, selectedLanguage]);
 
-  // Lock product-type filter when scoped (Spare Parts section or ?productType=)
+  // Keep new-product form type locked to the section scope once it resolves.
   useEffect(() => {
-    if (scopedProductTypeId) {
-      setFilterProductType(scopedProductTypeId);
-      setFilterCategories([]);
-      setFilterSubCategories([]);
-    }
-  }, [scopedProductTypeId]);
+    if (!isDialogOpen || editingProduct || !scopedProductTypeId) return;
+    setFormData((prev) =>
+      prev.productType === scopedProductTypeId
+        ? prev
+        : { ...prev, productType: scopedProductTypeId },
+    );
+  }, [isDialogOpen, editingProduct, scopedProductTypeId]);
+
+  // Lock product-type filter when scoped (Car Accessories / Spare Parts / ?productType=)
+  useEffect(() => {
+    if (!lockedTypeKey) return;
+
+    let cancelled = false;
+
+    const resolveScopedType = async () => {
+      const existing = productTypes.find((pt) =>
+        matchesProductType(pt, lockedTypeKey),
+      );
+      if (existing) {
+        setFilterProductType(existing.id);
+        setFilterCategories([]);
+        setFilterSubCategories([]);
+        return;
+      }
+
+      // Types list may omit the scope type (e.g. spare_parts before migration).
+      // Resolve via public code/slug endpoint before failing closed.
+      if (!productTypesReady) return;
+
+      try {
+        const fetched = await productTypeService.getByCodeOrSlug(
+          lockedTypeKey,
+          selectedLanguage?.id,
+        );
+        if (cancelled || !fetched?.id) return;
+        setProductTypes((prev) =>
+          prev.some((p) => p.id === fetched.id) ? prev : [...prev, fetched],
+        );
+        setFilterProductType(fetched.id);
+        setFilterCategories([]);
+        setFilterSubCategories([]);
+      } catch {
+        // leave scopedProductTypeId null → fetchProducts fails closed
+      }
+    };
+
+    resolveScopedType();
+    return () => {
+      cancelled = true;
+    };
+  }, [lockedTypeKey, productTypes, productTypesReady, selectedLanguage?.id]);
 
   // Helper function to get car ID from brand/model
   const getCarIdFromBrandModel = (
@@ -631,6 +681,18 @@ export default function ProductsPage() {
   const fetchProducts = async () => {
     if (!selectedStore || !selectedLanguage) return;
 
+    // Scoped catalog sections must not fall back to "all products".
+    if (isTypeScoped) {
+      if (!productTypesReady) return;
+      if (!scopedProductTypeId) {
+        setProducts([]);
+        setFilteredAllProducts([]);
+        setTotalProducts(0);
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
@@ -662,12 +724,17 @@ export default function ProductsPage() {
         sortKey === "updatedAt" ||
         (filterCarTrim !== "any" && Boolean(singleBrand && singleModel));
 
+      const effectiveProductTypeId = isTypeScoped
+        ? scopedProductTypeId!
+        : filterProductType !== "any"
+          ? filterProductType
+          : undefined;
+
       const baseParams = {
         storeId: selectedStore.id,
         languageId: selectedLanguage.id,
         search: debouncedSearchQuery || undefined,
-        productTypeId:
-          filterProductType !== "any" ? filterProductType : undefined,
+        productTypeId: effectiveProductTypeId,
         categoryId:
           filterCategories.length > 0 ? filterCategories : undefined,
         subCategoryId:
@@ -767,6 +834,9 @@ export default function ProductsPage() {
     selectedLanguage,
     debouncedSearchQuery,
     filterProductType,
+    scopedProductTypeId,
+    productTypesReady,
+    isTypeScoped,
     filterCategories,
     filterSubCategories,
     filterCarBrands,
@@ -1025,6 +1095,14 @@ export default function ProductsPage() {
     size: "",
   });
 
+  /** Fitment from selected type, or from Car Accessories / Spare Parts section scope. */
+  const formProductTypeCode =
+    productTypes.find((pt) => pt.id === formData.productType)?.code ??
+    scopedProductType?.code ??
+    catalogScope?.code ??
+    null;
+  const formRequiresFitment = productTypeRequiresFitment(formProductTypeCode);
+
   // Remove old vehicle makes filtering logic - will be handled by API
   // Categories and subcategories will come from API in future
 
@@ -1094,6 +1172,12 @@ export default function ProductsPage() {
   // Editing functionality will be added in next steps
 
   const handleOpenDialog = async (product?: Product) => {
+    if (!product && scopeTypeMissing) {
+      toast.error("Product type unavailable", {
+        description: `“${lockedTypeKey}” is not on this API yet. Create it under Product Types or run migration 083.`,
+      });
+      return;
+    }
     if (product) {
       let productToEdit = product;
 
@@ -1463,17 +1547,14 @@ export default function ProductsPage() {
       return;
     }
 
-    // Validate car compatibility for car_parts product types (only for new products)
-    const selectedProductType = productTypes.find(
-      (pt) => pt.id === formData.productType,
-    );
+    // Validate car compatibility for vehicle-fitment types (only for new products)
     if (
       !editingProduct &&
-      productTypeRequiresFitment(selectedProductType?.code) &&
+      formRequiresFitment &&
       selectedCarCompatibility.length === 0
     ) {
       toast.error("Validation Error", {
-        description: "Please select the compatible car for car parts",
+        description: "Please select the compatible car for this product",
       });
       return;
     }
@@ -1542,11 +1623,9 @@ export default function ProductsPage() {
                   : []),
               ]
             : undefined,
-        // Add car compatibility for car_parts product types with year ranges
+        // Add car compatibility for vehicle-fitment product types with year ranges
         carCompatibility:
-          productTypeRequiresFitment(
-            productTypes.find((pt) => pt.id === formData.productType)?.code,
-          ) && selectedCarCompatibility.length > 0
+          formRequiresFitment && selectedCarCompatibility.length > 0
             ? selectedCarCompatibility.slice(0, 1).map((compat) => ({
                 carId: compat.carId,
                 yearFrom: compat.yearFrom,
@@ -2067,7 +2146,16 @@ export default function ProductsPage() {
             <Upload size={18} />
             Import
           </Button>
-          <Button className="gap-2" onClick={() => handleOpenDialog()}>
+          <Button
+            className="gap-2"
+            onClick={() => handleOpenDialog()}
+            disabled={scopeTypeMissing}
+            title={
+              scopeTypeMissing
+                ? `Product type “${lockedTypeKey}” is not available yet`
+                : undefined
+            }
+          >
             <Plus size={18} />
             Add Product
           </Button>
@@ -2404,9 +2492,25 @@ export default function ProductsPage() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
           <div>
-            <CardTitle>All Products ({totalProducts})</CardTitle>
+            <CardTitle>
+              {catalogScope
+                ? `${catalogScope.label} (${totalProducts})`
+                : scopedProductType
+                  ? `${
+                      scopedProductType.translations?.find(
+                        (t) => t.languageCode === selectedLanguage?.code,
+                      )?.name ||
+                      scopedProductType.name ||
+                      "Products"
+                    } (${totalProducts})`
+                  : `All Products (${totalProducts})`}
+            </CardTitle>
             <CardDescription>
-              Manage your product catalog
+              {scopeTypeMissing
+                ? `Product type “${lockedTypeKey}” is not available on this API yet. Deploy/run migration 083 for spare parts.`
+                : catalogScope
+                  ? `Products in ${catalogScope.label}`
+                  : "Manage your product catalog"}
               {selectedIds.length > 0
                 ? ` · ${selectedIds.length} selected`
                 : ""}
@@ -2460,7 +2564,10 @@ export default function ProductsPage() {
                     Clear Filters
                   </Button>
                 )}
-                <Button onClick={() => handleOpenDialog()}>
+                <Button
+                  onClick={() => handleOpenDialog()}
+                  disabled={scopeTypeMissing}
+                >
                   <Plus size={18} className="mr-2" />
                   Add Your First Product
                 </Button>
@@ -2795,14 +2902,14 @@ export default function ProductsPage() {
             <div className="space-y-2">
               <Label htmlFor="productType">Product Type *</Label>
               <Select
-                value={formData.productType}
+                value={formData.productType || undefined}
                 disabled={isTypeScoped && !editingProduct}
                 onValueChange={(value: string) => {
                   const selectedType = productTypes.find(
                     (pt) => pt.id === value,
                   );
                   const requiresCars = productTypeRequiresFitment(
-                    selectedType?.code,
+                    selectedType?.code ?? catalogScope?.code,
                   );
 
                   setFormData({
@@ -2820,7 +2927,13 @@ export default function ProductsPage() {
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select product type" />
+                  <SelectValue
+                    placeholder={
+                      isTypeScoped
+                        ? catalogScope?.label || "Section product type"
+                        : "Select product type"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {productTypes
@@ -2841,19 +2954,17 @@ export default function ProductsPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {productTypeRequiresFitment(
-                  productTypes.find((pt) => pt.id === formData.productType)
-                    ?.code,
-                )
+                {isTypeScoped
+                  ? `Locked to ${catalogScope?.label ?? lockedTypeKey}. `
+                  : ""}
+                {formRequiresFitment
                   ? "This product requires vehicle make, model, and year specifications."
                   : "This product does not require vehicle specifications."}
               </p>
             </div>
 
-            {/* Car Compatibility Selection - Only for car_parts product types */}
-            {productTypeRequiresFitment(
-              productTypes.find((pt) => pt.id === formData.productType)?.code,
-            ) &&
+            {/* Car Compatibility Selection - vehicle-fitment types / scoped sections */}
+            {formRequiresFitment &&
               !editingProduct && (
                 <div className="space-y-3 border rounded-lg p-4 bg-accent/5">
                   <div>
@@ -3508,11 +3619,8 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            {/* Car Compatibility Section - Only for existing car_parts products */}
-            {editingProduct &&
-              productTypeRequiresFitment(
-                productTypes.find((pt) => pt.id === formData.productType)?.code,
-              ) && (
+            {/* Car Compatibility Section - existing vehicle-fitment products */}
+            {editingProduct && formRequiresFitment && (
               <div className="space-y-4 border-t border-primary/20 pt-4 mt-6 bg-primary/5 p-4 rounded-lg">
                 <div className="flex items-center justify-between">
                   <div>

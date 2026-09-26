@@ -125,6 +125,29 @@ class ProductTypeService {
   }
 
   /**
+   * Get product type by code or slug (public)
+   * GET /api/product-types/code/:codeOrSlug
+   */
+  async getByCodeOrSlug(
+    codeOrSlug: string,
+    languageId?: string,
+  ): Promise<ProductType> {
+    try {
+      const params = languageId ? { languageId } : undefined;
+      const response = await apiClient.get<any>(
+        `/product-types/code/${encodeURIComponent(codeOrSlug)}`,
+        params,
+      );
+      return response.data.data;
+    } catch (error: unknown) {
+      console.error('Get product type by code/slug error:', error);
+      throw new Error(
+        getApiErrorMessage(error, 'Failed to fetch product type'),
+      );
+    }
+  }
+
+  /**
    * Get public product types (active only)
    * GET /api/product-types/public
    */
