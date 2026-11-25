@@ -48,6 +48,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   productService,
   Product,
+  type ProductVariant,
   buildProductImageRemovalPayload,
   wasProductImageRemoved,
   buildSetPrimaryImagePayload,
@@ -87,6 +88,8 @@ export default function ProductDetailPage() {
   const [uploadingImage, setUploadingImage] = useState<string | null>(null); // 'main', 'secondary', or 'gallery'
   const [isEditing, setIsEditing] = useState(false);
   const [isComingSoon, setIsComingSoon] = useState(false);
+  // Per-variant stock being edited, keyed by variant SKU.
+  const [variantStock, setVariantStock] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Category[]>([]);
@@ -321,6 +324,13 @@ export default function ProductDetailPage() {
       product.stockQuantity === COMING_SOON_STOCK_QUANTITY &&
         (!product.variants || product.variants.length === 0),
     );
+    setVariantStock(
+      Object.fromEntries(
+        (product.variants ?? [])
+          .filter((v) => v.sku)
+          .map((v) => [v.sku!, String(v.stockQuantity ?? 0)]),
+      ),
+    );
 
     // Set subcategories if category is selected
     if (product.categoryId) {
@@ -378,6 +388,7 @@ export default function ProductDetailPage() {
   const handleCancelEdit = () => {
     setIsEditing(false);
     setIsComingSoon(false);
+    setVariantStock({});
     setFormData({
       name: "",
       nameAr: "",
@@ -423,6 +434,24 @@ export default function ProductDetailPage() {
       return;
     }
 
+    // Variant stock: whole numbers ≥ 0, sent back with every variant so the
+    // backend keeps the rest of each variant unchanged.
+    let editedVariants: ProductVariant[] | undefined;
+    if (hasVariants) {
+      editedVariants = [];
+      for (const v of product.variants!) {
+        const raw = v.sku ? variantStock[v.sku] : undefined;
+        const qty = raw === undefined ? v.stockQuantity : Number(raw);
+        if (raw !== undefined && (raw.trim() === "" || !Number.isInteger(qty) || qty < 0)) {
+          toast.error("Validation Error", {
+            description: `Stock for ${v.sku} must be a whole number of 0 or more`,
+          });
+          return;
+        }
+        editedVariants.push({ ...v, stockQuantity: qty });
+      }
+    }
+
     try {
       setSaving(true);
 
@@ -436,9 +465,19 @@ export default function ProductDetailPage() {
         categoryId: formData.categoryId,
         subCategoryId: formData.subCategoryId || undefined,
         price: parseFloat(formData.price),
-        stockQuantity: hasVariants
-          ? sumVariantStock(product.variants!)
+        stockQuantity: editedVariants
+          ? sumVariantStock(editedVariants)
           : parseInt(formData.stockQuantity),
+        variants: editedVariants?.map((v) => ({
+          sku: v.sku,
+          size: v.size ?? null,
+          color: v.color ?? null,
+          priceAdjustment: v.priceAdjustment,
+          stockQuantity: v.stockQuantity,
+          mainImage: v.mainImage ?? null,
+          images: v.images ?? [],
+          isActive: v.isActive,
+        })),
         brand: formData.brand || undefined,
         size: formData.size || undefined,
         translations: [
@@ -1062,8 +1101,15 @@ export default function ProductDetailPage() {
                         )}
                         {product.variants && product.variants.length > 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Stock managed per variant — total:{" "}
-                            {getEffectiveStockQuantity(product)}
+                            Stock managed per variant — edit it in the
+                            Product Variants table below. Total:{" "}
+                            {product.variants
+                              .filter((v) => v.isActive !== false)
+                              .reduce((sum, v) => {
+                                const raw = v.sku ? variantStock[v.sku] : undefined;
+                                const n = raw === undefined ? v.stockQuantity : Number(raw);
+                                return sum + (Number.isFinite(n) ? n : 0);
+                              }, 0)}
                           </p>
                         )}
                         {isComingSoon &&
@@ -1538,7 +1584,27 @@ export default function ProductDetailPage() {
                             {variant.priceAdjustment >= 0 ? "+" : ""}
                             {variant.priceAdjustment.toFixed(3)} JOD
                           </td>
-                          <td className="p-3">{variant.stockQuantity}</td>
+                          <td className="p-3">
+                            {isEditing && variant.sku ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                step={1}
+                                inputMode="numeric"
+                                aria-label={`Stock for ${variant.sku}`}
+                                className="h-8 w-24"
+                                value={variantStock[variant.sku] ?? ""}
+                                onChange={(e) =>
+                                  setVariantStock((prev) => ({
+                                    ...prev,
+                                    [variant.sku!]: e.target.value,
+                                  }))
+                                }
+                              />
+                            ) : (
+                              variant.stockQuantity
+                            )}
+                          </td>
                           <td className="p-3">
                             <Badge
                               variant={
