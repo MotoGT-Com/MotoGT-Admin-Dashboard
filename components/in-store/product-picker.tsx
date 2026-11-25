@@ -38,6 +38,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { LoadingState } from "@/components/loading-state";
 
+const PAGE_SIZE = 24;
+
 interface ProductPickerProps {
   cart: CartLine[];
   onAdd: (line: CartLine) => void;
@@ -104,6 +106,14 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const requestIdRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -196,10 +206,23 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
     [activeCategory],
   );
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (pageToLoad = 1) => {
     if (!storeId || !languageId) return;
-    setIsLoading(true);
-    setLoadError(null);
+    const append = pageToLoad > 1;
+    // A new first-page load supersedes everything in flight; an append is
+    // ignored if one is already running or the filters changed meanwhile.
+    if (append && loadingMoreRef.current) return;
+    const requestId = append ? requestIdRef.current : ++requestIdRef.current;
+    if (append) {
+      loadingMoreRef.current = true;
+      setIsLoadingMore(true);
+    } else {
+      loadingMoreRef.current = false;
+      setIsLoadingMore(false);
+      setIsLoading(true);
+      setLoadError(null);
+    }
+    const isStale = () => requestId !== requestIdRef.current;
     try {
       const response = await productService.listProducts({
         storeId,
@@ -210,15 +233,37 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
         carBrand: vehicleMake || undefined,
         carModel: vehicleModel || undefined,
         carYear: vehicleYear ? Number(vehicleYear) : undefined,
-        page: 1,
-        limit: 10,
+        page: pageToLoad,
+        limit: PAGE_SIZE,
       });
-      setProducts(response.data);
+      if (isStale()) return;
+      const { total, totalPages } = response.meta;
+      setProducts((prev) => {
+        if (!append) return response.data;
+        const seen = new Set(prev.map((p) => p.id));
+        return [...prev, ...response.data.filter((p) => !seen.has(p.id))];
+      });
+      setPage(pageToLoad);
+      setTotalProducts(total);
+      setHasMore(pageToLoad < totalPages);
     } catch (error: any) {
-      setLoadError(error.message || "Failed to fetch products.");
-      setProducts([]);
+      if (isStale()) return;
+      if (append) {
+        toast.error(error.message || "Failed to load more products.");
+      } else {
+        setLoadError(error.message || "Failed to fetch products.");
+        setProducts([]);
+        setHasMore(false);
+      }
     } finally {
-      setIsLoading(false);
+      if (!isStale()) {
+        if (append) {
+          loadingMoreRef.current = false;
+          setIsLoadingMore(false);
+        } else {
+          setIsLoading(false);
+        }
+      }
     }
   }, [
     storeId,
@@ -232,9 +277,31 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
   ]);
 
   useEffect(() => {
-    const timer = setTimeout(fetchProducts, 300);
+    const timer = setTimeout(() => fetchProducts(1), 300);
     return () => clearTimeout(timer);
   }, [fetchProducts]);
+
+  const loadMore = useCallback(() => {
+    if (!hasMore || isLoading || loadingMoreRef.current) return;
+    fetchProducts(page + 1);
+  }, [hasMore, isLoading, page, fetchProducts]);
+
+  // Load the next page when the sentinel at the bottom of the list scrolls
+  // into view. Re-observing after each page means a list that is still too
+  // short to scroll keeps filling until it can.
+  useEffect(() => {
+    const root = listRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel || !hasMore || isLoading || isLoadingMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore();
+      },
+      { root, rootMargin: "0px 0px 200px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoading, isLoadingMore, loadMore, isFullscreen, products.length]);
 
   const makes = useMemo(
     () => Array.from(new Set(cars.map((c) => c.brand).filter(Boolean))).sort(),
@@ -524,6 +591,7 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
         )}
       >
         <div
+          ref={listRef}
           className={cn(
             "overflow-y-auto divide-y divide-border",
             isFullscreen ? "h-full max-h-none" : "max-h-[420px]",
@@ -534,7 +602,7 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
           ) : loadError ? (
             <div className="py-10 text-center text-sm space-y-2">
               <p className="text-destructive">{loadError}</p>
-              <Button variant="outline" size="sm" onClick={fetchProducts}>
+              <Button variant="outline" size="sm" onClick={() => fetchProducts(1)}>
                 Retry
               </Button>
             </div>
@@ -630,6 +698,29 @@ export function ProductPicker({ cart, onAdd }: ProductPickerProps) {
               );
             })
           )}
+          {!isLoading && !loadError && products.length > 0 ? (
+            <div
+              ref={sentinelRef}
+              className="flex items-center justify-between gap-3 p-3 text-xs text-muted-foreground"
+            >
+              <span>
+                Showing {products.length} of {totalProducts}
+              </span>
+              {hasMore ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoadingMore}
+                  onClick={loadMore}
+                >
+                  {isLoadingMore ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : null}
+                  Load more
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
